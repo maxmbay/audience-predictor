@@ -19,6 +19,7 @@ from audience_predictor.data.screenplay_parser import (
 FloatArray = NDArray[np.float32]
 BoolArray = NDArray[np.bool_]
 N_STRUCT = len(STRUCT_KEYS)
+HASH_CLIP_CHARS = 800
 
 
 @dataclass
@@ -48,13 +49,37 @@ def blocks_from_screenplay(text: str, hash_dim: int, max_blocks: int) -> tuple[F
     return blocks_from_parsed(parsed, hash_dim, max_blocks)
 
 
+def select_block_indices(n: int, max_blocks: int) -> np.ndarray:
+    """Spread selected scenes across the whole document, not just the opening."""
+    if n <= 0:
+        return np.zeros(0, dtype=np.int64)
+    if n <= max_blocks:
+        return np.arange(n, dtype=np.int64)
+    raw = np.linspace(0, n - 1, num=max_blocks)
+    idx = np.unique(np.rint(raw).astype(np.int64))
+    return idx[:max_blocks]
+
+
+def _clip_text(text: str) -> str:
+    body = text.strip()
+    if len(body) <= HASH_CLIP_CHARS:
+        return body
+    return body[:HASH_CLIP_CHARS]
+
+
 def blocks_from_parsed(
     parsed: ParsedScreenplay, hash_dim: int, max_blocks: int
 ) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray]:
-    dialogue = [s.dialogue_text for s in parsed.scenes] or [""]
-    action = [f"{s.heading} {s.action_text}".strip() for s in parsed.scenes] or [""]
-    d = hash_embed_many(dialogue[:max_blocks], hash_dim)
-    a = hash_embed_many(action[:max_blocks], hash_dim)
+    scenes = parsed.scenes
+    if not scenes:
+        dialogue = [""]
+        action = [""]
+    else:
+        keep = select_block_indices(len(scenes), max_blocks)
+        dialogue = [_clip_text(scenes[i].dialogue_text) for i in keep]
+        action = [_clip_text(f"{scenes[i].heading} {scenes[i].action_text}") for i in keep]
+    d = hash_embed_many(dialogue, hash_dim)
+    a = hash_embed_many(action, hash_dim)
     packed_d, mask = _pad_blocks([d], max_blocks, hash_dim)
     packed_a, _ = _pad_blocks([a], max_blocks, hash_dim)
     stats = structural_features(parsed)

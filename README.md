@@ -25,11 +25,18 @@ uv sync --dev
 cp .env.example .env   # set CATALOG_VALUE_ROOT if the sibling path is nonstandard
 PYTHONPATH=src uv run pytest
 PYTHONPATH=src uv run python -m audience_predictor coverage
+PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum
 PYTHONPATH=src uv run python -m audience_predictor train --modality genome
+PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
 PYTHONPATH=src uv run python -m audience_predictor evaluate
 PYTHONPATH=src uv run python -m audience_predictor figures
 PYTHONPATH=src uv run python -m audience_predictor report
 ```
+
+Gold screenplays come from [MovieSum](https://huggingface.co/datasets/rohitsaxena/MovieSum)
+(`data/raw/moviesum/{train,val,test}.jsonl`). Scripts stay local; git stores
+parsers, IMDb identifiers, and hashed scene features only. Wikipedia summaries
+in that dump are post-release text and are not used as input.
 
 ## Documentation
 

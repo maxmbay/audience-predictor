@@ -199,3 +199,59 @@ STRUCT_KEYS = (
     "graph_density",
     "scene_transition_rate",
 )
+
+
+def parse_moviesum_xml(xml_text: str) -> ParsedScreenplay:
+    """Parse MovieSum's scene-tagged XML into the shared screenplay schema."""
+    import xml.etree.ElementTree as ET
+
+    text = xml_text.strip()
+    if not text.startswith("<"):
+        return parse_screenplay(text)
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError:
+        wrapped = f"<script>{text}</script>"
+        try:
+            root = ET.fromstring(wrapped)
+        except ET.ParseError:
+            return parse_screenplay(re.sub(r"<[^>]+>", " ", text))
+
+    scenes: list[Scene] = []
+    transitions: list[str] = []
+    for scene_el in root.findall(".//scene"):
+        heading = " ".join(scene_el.findtext("stage_direction", default="").split())
+        interior, location, time_of_day = _split_heading(heading) if heading else (None, "", "")
+        scene = Scene(
+            heading=heading or "UNSLUGGED",
+            interior=interior,
+            location=location,
+            time_of_day=time_of_day,
+        )
+        speaker: str | None = None
+        for child in list(scene_el):
+            tag = child.tag.lower()
+            body = " ".join((child.text or "").split())
+            if not body:
+                continue
+            if tag == "stage_direction":
+                continue
+            if tag in {"scene_description", "action"}:
+                scene.action.append(body)
+                speaker = None
+            elif tag == "character":
+                speaker = body.upper()
+                if speaker not in scene.characters:
+                    scene.characters.append(speaker)
+            elif tag == "dialogue" and speaker is not None:
+                scene.dialogue.append((speaker, body))
+            elif tag == "dialogue":
+                scene.dialogue.append(("UNKNOWN", body))
+            elif tag == "parenthetical":
+                continue
+            elif TRANSITION_RE.match(body):
+                transitions.append(body.upper())
+        scenes.append(scene)
+    if not scenes:
+        return parse_screenplay(re.sub(r"<[^>]+>", " ", text))
+    return ParsedScreenplay(scenes=scenes, transitions=transitions)

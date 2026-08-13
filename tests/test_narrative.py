@@ -1,5 +1,4 @@
-
-from audience_predictor.data.narrative import blocks_from_screenplay
+from audience_predictor.data.narrative import blocks_from_screenplay, select_block_indices
 
 
 def test_screenplay_blocks_mask_matches_scene_count(sample_screenplay):
@@ -8,3 +7,11 @@ def test_screenplay_blocks_mask_matches_scene_count(sample_screenplay):
     assert int(mask.sum()) == 3
     assert not mask[0, 3]
     assert struct.shape[1] > 0
+
+
+def test_select_block_indices_spans_the_script():
+    idx = select_block_indices(100, 8)
+    assert len(idx) == 8
+    assert idx[0] == 0
+    assert idx[-1] == 99
+    assert list(idx) == sorted(idx)

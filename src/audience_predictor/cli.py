@@ -9,6 +9,7 @@ from audience_predictor.pipeline import (
     run_coverage,
     run_evaluate,
     run_figures,
+    run_ingest_moviesum,
     run_scaling,
     run_train,
 )
@@ -24,10 +25,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", type=Path, default=None)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("coverage", help="Write the MovieLens join coverage report")
+    sub.add_parser("ingest-moviesum", help="Parse MovieSum XML, join IMDb ids, write hashed blocks")
     train = sub.add_parser("train", help="Train an Equinox encoder into collaborative z-space")
     train.add_argument(
         "--modality",
-        choices=("metadata", "genome", "tags", "hierarchical"),
+        choices=("metadata", "genome", "tags", "hierarchical", "genome_gold", "screenplay", "dialogue"),
         default="genome",
     )
     sub.add_parser("evaluate", help="Summarize trained modalities on the movie-level holdout")
@@ -38,6 +40,9 @@ def main(argv: list[str] | None = None) -> None:
     config = load_config(args.config)
     if args.command == "coverage":
         path = run_coverage(config)
+        print(path)
+    elif args.command == "ingest-moviesum":
+        path = run_ingest_moviesum(config)
         print(path)
     elif args.command == "train":
         run_train(config, args.modality)

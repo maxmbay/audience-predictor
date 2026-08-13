@@ -216,3 +216,15 @@ Primary metric: **holdout cosine** to collaborative embeddings. Secondary: NLL/C
 - Claiming the screenplay *causes* audience outcome
 
 Until gold scripts land, silver text (tags, synopses) plus genome/metadata answer: *does narrative-shaped information recover audience space beyond popularity and genre?* That is H1. H2 (screenplay > dialogue) stays structurally ready and empirically pending.
+
+---
+
+## Later branches (after PR 6)
+
+**Gold screenplays (MovieSum first).** `ingest-moviesum` parses the Hugging Face XML dump, joins `tt` IMDb ids onto the catalog-value spine, and writes provenance + hashed blocks. No script text in git. Train `screenplay` vs `dialogue` on the overlap only.
+
+**Silver subtitles.** SubtitleCF / SubLens-20M (~19k files named by imdbID), then OpenSubtitles via OPUS for pretraining scale.
+
+**More gold identifiers.** Script Savant, IMSDb, SimplyScripts, Daily Script, Script Slug — collect identifiers and join; do not scrape as the first ingest.
+
+**Joins.** IMDb non-commercial datasets and TMDB API for entity resolution and metadata. MovieLens 25M is already in catalog-value; 32M is a later spine bump.

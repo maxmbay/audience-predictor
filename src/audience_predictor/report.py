@@ -14,7 +14,7 @@ def _metrics_block() -> str:
     path = output_dir() / "ablation.json"
     if not path.exists():
         parts = []
-        for name in ("metadata", "genome", "tags", "hierarchical"):
+        for name in ("metadata", "genome", "tags", "hierarchical", "genome_gold", "screenplay", "dialogue"):
             p = output_dir() / name / "metrics.json"
             if p.exists():
                 parts.append((name, json.loads(p.read_text())))
@@ -24,14 +24,17 @@ def _metrics_block() -> str:
     if not data:
         return "_No trained modalities yet. Run `audience-predictor train --modality genome`._"
     lines = [
-        "| Modality | Train cosine | Holdout cosine | Holdout RMSE | Holdout NLL |",
-        "|----------|-------------:|---------------:|-------------:|------------:|",
+        "| Modality | Train cosine | Holdout cosine | Holdout n | Gold-holdout cosine |",
+        "|----------|-------------:|---------------:|----------:|--------------------:|",
     ]
     for name, block in data.items():
         tr = block["train"]
         ho = block["holdout"]
+        gh = block.get("gold_holdout") or {}
+        gold_cos = gh.get("cosine_mean")
+        gold_cell = f"{gold_cos:.3f}" if gold_cos is not None else "—"
         lines.append(
-            f"| {name} | {tr['cosine_mean']:.3f} | {ho['cosine_mean']:.3f} | {ho['rmse']:.3f} | {ho.get('nll', float('nan')):.3f} |"
+            f"| {name} | {tr['cosine_mean']:.3f} | {ho['cosine_mean']:.3f} | {ho.get('n', 0):,} | {gold_cell} |"
         )
     return "\n".join(lines)
 
@@ -45,8 +48,35 @@ def _findings() -> str:
     m = data.get("metadata", {}).get("holdout", {})
     t = data.get("tags", {}).get("holdout", {})
     h = data.get("hierarchical", {}).get("holdout", {})
+    sp = data.get("screenplay", {}).get("holdout", {})
+    dl = data.get("dialogue", {}).get("holdout", {})
+    gg = data.get("genome_gold", {}).get("holdout", {})
+    g_gold = data.get("genome", {}).get("gold_holdout", {})
     if not g:
         return ""
+    gold_note = ""
+    if sp:
+        sp_cos = sp.get("cosine_mean", 0)
+        dl_cos = dl.get("cosine_mean", 0) if dl else 0
+        delta = sp_cos - dl_cos
+        h2 = "supported" if delta > 0.01 else ("not supported" if delta < -0.01 else "too close to call")
+        extra = []
+        if gg:
+            extra.append(f"Matched-N genome (gold train only) is {gg.get('cosine_mean', 0):.3f}.")
+        if g_gold:
+            extra.append(f"Full-data genome scored on the same gold holdout is {g_gold.get('cosine_mean', 0):.3f}.")
+        extra_txt = " ".join(extra)
+        gold_note = f"""
+- **H2 ({h2}).** On MovieSum ∩ holdout (n={sp.get('n', 0)}), full screenplay
+  cosine is {sp_cos:.3f} vs dialogue-only {dl_cos:.3f} (Δ={delta:+.3f}).
+  {extra_txt} Wikipedia summaries from MovieSum are **not** used — they leak
+  post-release reception.
+"""
+    else:
+        gold_note = """
+- **N_screenplay ∩ MovieLens is still 0 in this checkpoint.** Run
+  `ingest-moviesum` then `train --modality screenplay` / `dialogue`.
+"""
     return f"""
 ### What this run actually found
 
@@ -65,9 +95,7 @@ def _findings() -> str:
   {g.get('error_vs_sigma_spearman', 0):.2f} on genome holdout. The NLL term
   shrinks σ without making it track mistakes. Calibration needs a dedicated
   pass (temperature scaling or a proper heteroscedastic fit).
-- **N_screenplay ∩ MovieLens is still 0.** The parser, provenance schema, and
-  residual head are waiting on a gold corpus. Do not read tag results as
-  screenplay results.
+{gold_note}
 """
 
 
@@ -116,12 +144,12 @@ content-like signals:
 - MovieLens "genome" tags (a rich but non-narrative content baseline)
 - the words viewers themselves tag the film with (a silver stand-in for
   dialogue and cultural reception)
-- a **set transformer** that treats those tags (and, later, screenplay scenes)
-  as an unordered collection of story blocks
+- a **set transformer** over MovieSum scenes (dialogue vs full screenplay)
+  once the gold XML is ingested locally
 
-Until a gold corpus of several thousand genuine screenplays is licensed and
-parsed, we do **not** claim "the screenplay predicts the audience." We claim
-something more careful and already useful:
+MovieSum Wikipedia summaries are post-release text and are **never** used as
+screenplay input. A subtitle is not a screenplay; hashed user tags are not
+either.
 
 > Story-shaped information, encoded as a set of blocks with a probabilistic
 > Equinox model, recovers a meaningful slice of the audience a film eventually
@@ -166,11 +194,14 @@ metadata     genre + year
 genome       1,128 tag relevances + genre + year     ← bar to beat
 tags         hashed MovieLens user tags (bag)
 hierarchical set transformer over the same tags as blocks
-screenplay   parser ready; corpus not in git
+genome_gold  genome MLP trained only on MovieSum ∩ train
+dialogue     MovieSum spoken lines (action/structure zeroed)
+screenplay   MovieSum scenes + action + structure     ← H2
 ```
 
-Movie-level split: 20% of well-rated titles are held out entirely. The text
-model never sees their collaborative embedding during training.
+Movie-level split: 20% of well-rated titles are held out entirely. Screenplay
+and dialogue models train only on MovieSum ∩ train; they never see zeros for
+titles without a script.
 
 ### Architecture, in one picture
 
@@ -239,15 +270,19 @@ depth, silver tags — is already in place.
 ```bash
 uv sync --dev
 uv run pytest
-uv run python -m audience_predictor coverage
-uv run python -m audience_predictor train --modality genome
-uv run python -m audience_predictor train --modality metadata
-uv run python -m audience_predictor train --modality tags
-uv run python -m audience_predictor train --modality hierarchical
-uv run python -m audience_predictor evaluate
-uv run python -m audience_predictor scaling
-uv run python -m audience_predictor figures
-uv run python -m audience_predictor report
+PYTHONPATH=src uv run python -m audience_predictor coverage
+PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome
+PYTHONPATH=src uv run python -m audience_predictor train --modality metadata
+PYTHONPATH=src uv run python -m audience_predictor train --modality tags
+PYTHONPATH=src uv run python -m audience_predictor train --modality hierarchical
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_gold
+PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue
+PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
+PYTHONPATH=src uv run python -m audience_predictor evaluate
+PYTHONPATH=src uv run python -m audience_predictor scaling
+PYTHONPATH=src uv run python -m audience_predictor figures
+PYTHONPATH=src uv run python -m audience_predictor report
 ```
 
 Checkpoints live in `outputs/<modality>/`. Figures live in `reports/figures/`.
@@ -320,7 +355,7 @@ calibration, not just accuracy.
 | ID | Claim | Status in this milestone |
 |----|-------|--------------------------|
 | H1 | Content predicts audience beyond metadata | Testable: genome vs metadata holdout cosine |
-| H2 | Full screenplay > dialogue | Structurally implemented; empirically pending gold scripts |
+| H2 | Full screenplay > dialogue | MovieSum gold: `screenplay` vs `dialogue` holdout cosine |
 | H3 | Silver pretrain helps gold | Pending gold scripts |
 | H4 | Multi-interest targets beat a single z | Target space is already multi-interest; not re-ablated here |
 | H5 | σ tracks error | `uncertainty.png` / Spearman(error, σ) |
@@ -338,9 +373,10 @@ calibration, not just accuracy.
 
 ### What "done" looks like for the gold-script era
 
-Keep the Equinox encoder. Replace hashed tags with parsed scenes. Precompute
-block embeddings once. Fine-tune. The residual head is already the experiment.
-The coverage report is already the go/no-go dashboard
+Keep the Equinox encoder. MovieSum is the first gold dump (identifiers and
+hashed blocks only in `data/processed/gold/`, scripts stay in `data/raw/`).
+Next: SubLens-20M silver subtitles, then a real language encoder in place of
+blake2b hashing. The coverage report is the go/no-go dashboard
 (`N_screenplay ∩ MovieLens`).
 
 ---

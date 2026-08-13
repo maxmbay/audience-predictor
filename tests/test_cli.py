@@ -6,4 +6,6 @@ def test_cli_help(capsys):
         main(["--help"])
     except SystemExit as exc:
         assert exc.code == 0
-    assert "coverage" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "coverage" in out
+    assert "ingest-moviesum" in out

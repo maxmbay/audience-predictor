@@ -1,0 +1,17 @@
+<script>
+  <scene>
+    <stage_direction>INT. ORBITAL CANTEEN - NIGHT</stage_direction>
+    <scene_description>Steam ghosts the viewport. Earth is a cold marble.</scene_description>
+    <character>KIRA</character>
+    <dialogue>We don't have long.</dialogue>
+    <character>JON</character>
+    <parenthetical>(quiet)</parenthetical>
+    <dialogue>Then we move before the next window.</dialogue>
+  </scene>
+  <scene>
+    <stage_direction>EXT. AIRLOCK CATWALK - NIGHT</stage_direction>
+    <scene_description>Stars. No wind. The hull ticks as it cools.</scene_description>
+    <character>JON</character>
+    <dialogue>Go.</dialogue>
+  </scene>
+</script>

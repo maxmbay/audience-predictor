@@ -14,6 +14,7 @@ from audience_predictor.data.bridge import (
     titles_path,
 )
 from audience_predictor.data.genome import parse_year
+from audience_predictor.data.moviesum import provenance_path
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.paths import reports_dir
 
@@ -29,6 +30,19 @@ def coverage_tables(root=None) -> dict[str, pl.DataFrame | dict]:
     movies = movies.join(tags, on="movieId", how="left")
     n = movies.height
     n_ratings = movies["n_ratings"].to_numpy()
+    n_screenplay = 0
+    n_join = 0
+    n_join_ge_1000 = 0
+    if provenance_path().exists():
+        gold = pl.read_parquet(provenance_path())
+        n_screenplay = gold.height
+        matched = gold.filter(pl.col("movie_row").is_not_null())
+        n_join = matched.height
+        if n_join:
+            rows = set(int(r) for r in matched["movie_row"].to_list())
+            n_join_ge_1000 = int(
+                movies.filter(pl.col("movie_row").is_in(list(rows)) & (pl.col("n_ratings") >= 1000)).height
+            )
     summary = {
         "n_movielens_core": n,
         "n_with_imdb": int(movies["imdbId"].is_not_null().sum()),
@@ -38,8 +52,9 @@ def coverage_tables(root=None) -> dict[str, pl.DataFrame | dict]:
         "n_with_ge_1000_ratings": int((n_ratings >= 1000).sum()),
         "n_with_ge_10000_ratings": int((n_ratings >= 10000).sum()),
         "n_with_user_tags": int(movies["n_tags"].fill_null(0).gt(0).sum()),
-        "n_screenplay": 0,
-        "n_screenplay_intersect_movielens": 0,
+        "n_screenplay": n_screenplay,
+        "n_screenplay_intersect_movielens": n_join,
+        "n_screenplay_intersect_ge_1000": n_join_ge_1000,
         "year_min": int(min(y for y in years if y) or 0),
         "year_max": int(max(years)),
         "n_ratings_core": int(ratings.height),
@@ -67,9 +82,9 @@ def write_coverage_report(root=None, dest: Path | None = None) -> Path:
     dest.write_text(
         f"""# Coverage report
 
-Join spine: `catalog-value` core universe. Narrative documents are counted
-without collapsing document types. Gold screenplays are **not** in this
-repository; `N_screenplay ∩ MovieLens = {summary['n_screenplay_intersect_movielens']}`.
+Join spine: `catalog-value` core universe. Gold screenplay *text* is not in git
+(MovieSum is CC BY-NC 4.0; we store identifiers and derived features only).
+`N_screenplay ∩ MovieLens = {summary['n_screenplay_intersect_movielens']}`.
 
 | Quantity | N |
 |----------|--:|
@@ -81,8 +96,9 @@ repository; `N_screenplay ∩ MovieLens = {summary['n_screenplay_intersect_movie
 | ≥1,000 ratings | {summary['n_with_ge_1000_ratings']:,} |
 | ≥10,000 ratings | {summary['n_with_ge_10000_ratings']:,} |
 | With MovieLens user tags (silver text) | {summary['n_with_user_tags']:,} |
-| Genuine screenplays | {summary['n_screenplay']:,} |
-| Screenplay ∩ MovieLens | {summary['n_screenplay_intersect_movielens']:,} |
+| Genuine screenplays (MovieSum) | {summary['n_screenplay']:,} |
+| Screenplay ∩ MovieLens core | {summary['n_screenplay_intersect_movielens']:,} |
+| Screenplay ∩ ≥1,000 ratings | {summary['n_screenplay_intersect_ge_1000']:,} |
 | Core ratings | {summary['n_ratings_core']:,} |
 | Year range | {summary['year_min']}–{summary['year_max']} |
 
