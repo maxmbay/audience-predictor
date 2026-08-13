@@ -26,7 +26,6 @@ from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
 from audience_predictor.eval.comps import neighbor_table
 from audience_predictor.eval.metrics import cosine, recovery_metrics
-from audience_predictor.models.posterior import residual_variance, shrink_posterior
 from audience_predictor.paths import output_dir
 from audience_predictor.train.loop import (
     predict_mlp,
@@ -43,6 +42,7 @@ from audience_predictor.viz.figures import (
     plot_neighbors,
     plot_polarization,
     plot_reconstruction,
+    plot_residual,
     plot_scaling,
     plot_uncertainty,
 )
@@ -167,7 +167,6 @@ def run_train(config: Config, modality: str) -> Path:
 
 
 def run_evaluate(config: Config) -> Path:
-    root, movies, z, bias, n_ratings, aux, split, _ = _load_spine(config)
     summary = {}
     for modality in ("metadata", "genome", "tags", "hierarchical"):
         path = output_dir() / modality / "metrics.json"
@@ -179,13 +178,8 @@ def run_evaluate(config: Config) -> Path:
     return dest
 
 
-def _load_pred(modality: str):
-    payload = np.load(output_dir() / modality / "predictions.npz", allow_pickle=True)
-    return payload
-
-
 def run_figures(config: Config) -> Path:
-    root, movies, z, bias, n_ratings, aux, split, _ = _load_spine(config)
+    root, movies, z, _bias, n_ratings, aux, _split, _years = _load_spine(config)
     figs = figures_dir()
     ablation_rows: list[tuple[str, float, float]] = []
     primary = None
@@ -200,7 +194,9 @@ def run_figures(config: Config) -> Path:
             continue
         pred = np.load(pred_path)
         metrics = json.loads((output_dir() / modality / "metrics.json").read_text())
-        ablation_rows.append((label, metrics["train"]["cosine_mean"], metrics["holdout"]["cosine_mean"]))
+        ablation_rows.append(
+            (label, metrics["train"]["cosine_mean"], metrics["holdout"]["cosine_mean"])
+        )
         if modality == "genome" or primary is None:
             primary = (modality, pred)
 
@@ -213,13 +209,14 @@ def run_figures(config: Config) -> Path:
     cos = cosine(mu, z)
     plot_reconstruction(n_ratings, cos, holdout, figs / "reconstruction.png")
     plot_loss(list(pred["history"]), figs / f"loss_{modality}.png")
-    plot_uncertainty(1.0 - cos[holdout], np.exp(0.5 * pred["log_var"][holdout]), figs / "uncertainty.png")
+    plot_uncertainty(
+        1.0 - cos[holdout], np.exp(0.5 * pred["log_var"][holdout]), figs / "uncertainty.png"
+    )
     plot_polarization(pred["aux"][holdout], aux[holdout], figs / "polarization.png")
     if ablation_rows:
         plot_ablation(ablation_rows, figs / "ablation.png")
 
-    atlas_file = atlas_path(root)
-    xy = np.load(atlas_file)["xy"]
+    xy = np.load(atlas_path(root))["xy"]
     pca = PCA(n_components=2, random_state=config.seed).fit(z)
     pred_xy = pca.transform(mu)
     title_list = movies.sort("movie_row")["title"].to_list()
@@ -228,7 +225,15 @@ def run_figures(config: Config) -> Path:
         hit = movies.filter(pl.col("title") == name)
         if not hit.is_empty():
             probes.append(int(hit["movie_row"][0]))
-    plot_atlas(xy, pred_xy, holdout, np.exp(0.5 * pred["log_var"]), title_list, probes[:5], figs / "atlas.png")
+    plot_atlas(
+        xy,
+        pred_xy,
+        holdout,
+        np.exp(0.5 * pred["log_var"]),
+        title_list,
+        probes[:5],
+        figs / "atlas.png",
+    )
 
     panels = []
     for name in config.eval.probes:
@@ -239,50 +244,40 @@ def run_figures(config: Config) -> Path:
     if panels:
         plot_neighbors(panels, figs / "comps.png")
 
-    cov = json.loads((output_dir() / "coverage_counts.json").read_text()) if (output_dir() / "coverage_counts.json").exists() else None
-    if cov is None:
-        cov = {
-            "core": int(movies.height),
-            "imdb": int(movies.height),
-            "ge1000": int((n_ratings >= 1000).sum()),
-            "tags": int((pl.read_csv.__module__ and True)),
-        }
-        tags = movie_tag_text(load_tags(root))
-        n_tags = movies.join(tags, on="movieId", how="left")["n_tags"].fill_null(0).gt(0).sum()
-        plot_coverage_funnel(
-            [
-                ("MovieLens core", int(movies.height)),
-                ("IMDb-linked", int(movies["imdbId"].is_not_null().sum())),
-                ("≥1,000 ratings", int((n_ratings >= 1000).sum())),
-                ("user tags (silver text)", int(n_tags)),
-                ("gold screenplays", 0),
-            ],
-            figs / "coverage_funnel.png",
+    tags = movie_tag_text(load_tags(root))
+    n_tags = int(movies.join(tags, on="movieId", how="left")["n_tags"].fill_null(0).gt(0).sum())
+    plot_coverage_funnel(
+        [
+            ("MovieLens core", int(movies.height)),
+            ("IMDb-linked", int(movies["imdbId"].is_not_null().sum())),
+            ("≥1,000 ratings", int((n_ratings >= 1000).sum())),
+            ("user tags (silver text)", n_tags),
+            ("gold screenplays", 0),
+        ],
+        figs / "coverage_funnel.png",
+    )
+
+    residual_path = output_dir() / "hierarchical" / "residual.npz"
+    hier_pred = output_dir() / "hierarchical" / "predictions.npz"
+    if residual_path.exists() and hier_pred.exists():
+        residual = np.load(residual_path)
+        hpred = np.load(hier_pred)
+        h_hold = hpred["holdout_mask"].astype(bool)
+        full_cos = cosine(hpred["mu"], z)
+        dial_cos = cosine(residual["z_dialogue"], z)
+        plot_residual(
+            np.linalg.norm(residual["delta"][h_hold], axis=1),
+            full_cos[h_hold] - dial_cos[h_hold],
+            figs / "residual.png",
         )
 
-    genome_pred = output_dir() / "genome" / "predictions.npz"
-    if genome_pred.exists():
-        g = np.load(genome_pred)
-        sizes, scores = _scaling_curve(g["mu"] * 0, z, side_features(movies) * 0 + content_features(movies, root=root), z, bias, aux, split, config)
-        if sizes:
-            plot_scaling(sizes, scores, figs / "scaling.png")
+    scaling = output_dir() / "scaling.json"
+    if scaling.exists():
+        payload = json.loads(scaling.read_text())
+        plot_scaling(payload["sizes"], payload["holdout_cosine"], figs / "scaling.png")
 
     print(f"Wrote figures under {figs}")
     return figs
-
-
-def _scaling_curve(unused_mu, z, x, z2, bias, aux, split, config: Config):
-    from audience_predictor.train.loop import predict_mlp, train_mlp
-
-    rng = np.random.default_rng(config.seed)
-    train = split.train_idx.copy()
-    rng.shuffle(train)
-    sizes = [s for s in (500, 1000, 2000, 4000) if s < len(train)]
-    if len(train) >= 200:
-        sizes.append(int(len(train)))
-    scores = []
-    x = content_features  # rebound below
-    return [], []
 
 
 def run_scaling(config: Config) -> Path:

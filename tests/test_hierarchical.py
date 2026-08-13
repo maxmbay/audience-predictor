@@ -5,7 +5,6 @@ import numpy as np
 from audience_predictor.data.narrative import blocks_from_screenplay
 from audience_predictor.data.screenplay_parser import STRUCT_KEYS
 from audience_predictor.models.hierarchical import NarrativeSetEncoder
-from tests.conftest import SAMPLE_SCREENPLAY
 
 
 def _model(hash_dim=32, model_dim=16, out_dim=8):
@@ -20,8 +19,8 @@ def _model(hash_dim=32, model_dim=16, out_dim=8):
     )
 
 
-def test_set_encoder_shapes_and_mask():
-    d, a, mask, struct = blocks_from_screenplay(SAMPLE_SCREENPLAY, hash_dim=32, max_blocks=8)
+def test_set_encoder_shapes_and_mask(sample_screenplay):
+    d, a, mask, struct = blocks_from_screenplay(sample_screenplay, hash_dim=32, max_blocks=8)
     model = _model()
     mu, log_var, bias, aux, z_d, delta = model(d[0], a[0], mask[0], struct[0])
     assert mu.shape == (8,)
@@ -30,17 +29,17 @@ def test_set_encoder_shapes_and_mask():
     assert aux.shape == (4,)
 
 
-def test_padding_does_not_change_pool():
-    d, a, mask, struct = blocks_from_screenplay(SAMPLE_SCREENPLAY, hash_dim=32, max_blocks=8)
+def test_padding_does_not_change_pool(sample_screenplay):
+    d, a, mask, struct = blocks_from_screenplay(sample_screenplay, hash_dim=32, max_blocks=8)
     model = _model()
     mu1, *_ = model(d[0], a[0], mask[0], struct[0])
-    d2 = d[0].at[7].set(100.0)
+    d2 = jnp.asarray(d[0]).at[7].set(100.0)
     mu2, *_ = model(d2, a[0], mask[0], struct[0])
     np.testing.assert_allclose(np.asarray(mu1), np.asarray(mu2), atol=1e-5)
 
 
-def test_residual_near_zero_when_action_empty():
-    d, a, mask, struct = blocks_from_screenplay(SAMPLE_SCREENPLAY, hash_dim=32, max_blocks=8)
+def test_residual_near_zero_when_action_empty(sample_screenplay):
+    d, a, mask, struct = blocks_from_screenplay(sample_screenplay, hash_dim=32, max_blocks=8)
     model = _model()
     zeros = jnp.zeros_like(a[0])
     _, _, _, _, z_d, delta = model(d[0], zeros, mask[0], jnp.zeros_like(struct[0]))
@@ -48,8 +47,8 @@ def test_residual_near_zero_when_action_empty():
     assert float(jnp.linalg.norm(delta)) < 5.0 * (float(jnp.linalg.norm(z_d)) + 1.0)
 
 
-def test_vmap_over_movies():
-    d, a, mask, struct = blocks_from_screenplay(SAMPLE_SCREENPLAY, hash_dim=32, max_blocks=8)
+def test_vmap_over_movies(sample_screenplay):
+    d, a, mask, struct = blocks_from_screenplay(sample_screenplay, hash_dim=32, max_blocks=8)
     model = _model()
     batched = jax.jit(jax.vmap(model))
     d2 = jnp.concatenate([d, d], axis=0)

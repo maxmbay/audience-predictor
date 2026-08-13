@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import jax.numpy as jnp
 import numpy as np
 from numpy.typing import NDArray
 from scipy.stats import spearmanr
 
 from audience_predictor.models.losses import gaussian_crps, gaussian_nll
-import jax.numpy as jnp
 
 
 def cosine(a: NDArray[np.floating], b: NDArray[np.floating]) -> np.ndarray:
@@ -39,12 +39,24 @@ def recovery_metrics(
         out["nll"] = float(gaussian_nll(mu, lv, tgt))
         out["crps"] = float(gaussian_crps(mu, lv, tgt))
         out["mean_sigma"] = float(np.exp(0.5 * np.asarray(log_var)).mean())
-        out["error_vs_sigma_spearman"] = float(
-            spearmanr(1.0 - cos, np.exp(0.5 * np.asarray(log_var))).statistic or 0.0
-        )
+        out["error_vs_sigma_spearman"] = _spearman(1.0 - cos, np.exp(0.5 * np.asarray(log_var)))
     if pred_aux is not None and true_aux is not None:
         names = ("mean_rating", "rating_std", "p_love", "p_hate")
         for i, name in enumerate(names):
-            stat = spearmanr(pred_aux[:, i], true_aux[:, i]).statistic
-            out[f"spearman_{name}"] = float(stat if stat is not None else 0.0)
-    return out
+            out[f"spearman_{name}"] = _spearman(pred_aux[:, i], true_aux[:, i])
+    n = int(out["n"])
+    cleaned = {k: _finite(v) for k, v in out.items() if k != "n"}
+    cleaned["n"] = n
+    return cleaned
+
+
+def _spearman(a: NDArray[np.floating], b: NDArray[np.floating]) -> float:
+    stat = spearmanr(a, b).statistic
+    return _finite(stat)
+
+
+def _finite(value: object) -> float:
+    if value is None:
+        return 0.0
+    number = float(value)
+    return number if np.isfinite(number) else 0.0

@@ -5,7 +5,13 @@ from pathlib import Path
 
 from audience_predictor.config import load_config
 from audience_predictor.data.env import load_dotenv
-from audience_predictor.pipeline import run_coverage, run_evaluate, run_figures, run_scaling, run_train
+from audience_predictor.pipeline import (
+    run_coverage,
+    run_evaluate,
+    run_figures,
+    run_scaling,
+    run_train,
+)
 from audience_predictor.report import write_report
 
 

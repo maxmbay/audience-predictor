@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
 import numpy as np
 import polars as pl
 
@@ -41,7 +44,7 @@ def plot_reconstruction(
     )
     ax.scatter(
         n_ratings[holdout],
-        cosine[~holdout] * 0 + cosine[holdout],
+        cosine[holdout],
         s=16,
         c=TEAL,
         alpha=0.8,
@@ -202,6 +205,20 @@ def plot_coverage_funnel(counts: list[tuple[str, int]], path: Path) -> Path:
     ax.set_title("Coverage funnel")
     for yi, val in zip(y, values, strict=True):
         ax.text(val * 1.01, yi, f"{val:,}", va="center", fontsize=8, color=INK)
+    return savefig(fig, path)
+
+
+def plot_residual(delta_norm: np.ndarray, gain: np.ndarray, path: Path) -> Path:
+    """gain = cosine(full) - cosine(dialogue) on holdout, vs ||Δ||."""
+    import matplotlib.pyplot as plt
+
+    apply_style()
+    fig, ax = plt.subplots(figsize=(7.2, 5.0))
+    ax.scatter(delta_norm, gain, s=14, c=GOLD, alpha=0.55, linewidths=0)
+    ax.axhline(0.0, color=INK, lw=0.8, alpha=0.35)
+    ax.set_xlabel("‖Δ‖  screenplay residual magnitude")
+    ax.set_ylabel("cosine gain vs dialogue-only")
+    ax.set_title("Where action and structure change the audience guess")
     return savefig(fig, path)
 
 

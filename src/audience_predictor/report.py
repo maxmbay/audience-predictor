@@ -46,7 +46,7 @@ def _fig(name: str) -> str:
 
 def write_report(config: Config) -> Path:
     dest = reports_dir() / "narrative-audience.md"
-    dest.parent.mkdir(parents=True, exist_all=True) if False else dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(_render(config))
     return dest
 
@@ -157,7 +157,7 @@ scene / tag / sentence
 
 Training is Optax AdamW on a sum of embedding MSE, Gaussian NLL (so the
 variance means something), bias MSE, and an auxiliary loss on
-\\(E[r], \\sqrt{{\\mathrm{{Var}}(r)}}, P(r\\ge 4), P(r\\le 2)\\).
+mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 
 ### Results so far
 
@@ -221,52 +221,47 @@ Checkpoints live in `outputs/<modality>/`. Figures live in `reports/figures/`.
 
 ### Target
 
-Let \(z_i^{{\\mathrm{{collab}}}} \\in \\mathbb{{R}}^{{64}}\) be the catalog-value
-item embedding. Users are mixtures \(Z_u = \\{{(\\pi_{{uk}}, z_{{uk}}))\\}}_{{k=1}}^{{8}}\).
-We do not retrain that space. We learn
+Let `z_i` in R^64 be the catalog-value item embedding. Users are mixtures
+`Z_u = {{(pi_uk, z_uk)}}` for k = 1..8. We do not retrain that space. We learn
 
-\\[
-f_\\theta(X_i) \\;\\mapsto\\; \\mathcal{{N}}\\big(\\mu_\\theta(X_i),\\, \\sigma_\\theta^2(X_i)\\, I\\big)
-\\]
+```text
+f(X_i)  →  N(μ_θ(X_i), σ_θ²(X_i) I)
+```
 
-and score \(\\cos(\\mu_\\theta(X_i), z_i^{{\\mathrm{{collab}}}})\) on titles whose
-ratings were **never** used to supervise \(f_\\theta\).
+and score cosine(μ_θ(X_i), z_i) on titles whose ratings were **never** used
+to supervise the text model.
 
 A Gaussian shrinkage posterior, identical in contract to catalog-value Phase B,
 
-\\[
-w_i = \\frac{{n_i}}{{n_i + n_0}},\\qquad
-\\mu_i = w_i z_i^{{\\mathrm{{collab}}}} + (1-w_i)\\mu_\\theta(X_i)
-\\]
+```text
+w_i = n_i / (n_i + n0)
+μ_i = w_i z_i + (1 - w_i) μ_θ(X_i)
+```
 
-keeps MCV plug-and-play. For true cold start, \(n_i = 0\) and the posterior
+keeps MCV plug-and-play. For true cold start, n_i = 0 and the posterior
 collapses to the narrative prior.
 
 ### Set encoder
 
-Blocks \(x_{{i1}},\\ldots,x_{{iT}}\) are hashed into \(\\mathbb{{R}}^{{d_h}}\).
-An ISAB layer with \(m\) inducing points compresses the set; PMA with a single
-learned query yields a movie token. Dialogue and action are separate
-projections; structure (scene counts, character entropy, graph density) is
-added into the residual stream:
+Blocks x_i1 … x_iT are hashed into R^d. An ISAB layer with m inducing
+points compresses the set; PMA with a single learned query yields a movie
+token. Dialogue and action are separate projections; structure (scene counts,
+character entropy, graph density) is added into the residual stream:
 
-\\[
-z_i = z_i^{{\\mathrm{{dialogue}}}} + \\Delta_i(\\text{{action}},\\, \\text{{structure}}).
-\\]
+```text
+z_i = z_dialogue + Delta_i(action, structure)
+```
 
 This is the flagship scientific object. On silver data, "dialogue" is
-folksonomy tags and "action" is empty, so \(\\Delta \\approx 0\) and the
-identity is testable. On gold screenplays, \(\\Delta\) is the incremental
-audience signal in description, setting, and pacing — hypothesis **H2**.
+folksonomy tags and "action" is empty, so Δ ≈ 0 and the identity is testable.
+On gold screenplays, Δ is the incremental audience signal in description,
+setting, and pacing — hypothesis **H2**.
 
 Loss (per train movie):
 
-\\[
-\\mathcal{{L}} = \\|\\mu - z\\|_2^2
-  + \\lambda_b (b - b_i)^2
-  + \\lambda_n \\, \\mathrm{{NLL}}(\\mu,\\sigma^2; z)
-  + \\lambda_a \\|\\mathrm{{aux}} - y^{{\\mathrm{{pol}}}}\\|_2^2.
-\\]
+```text
+L = ||μ - z||² + λ_b (b - b_i)² + λ_n NLL(μ, σ²; z) + λ_a ||aux - y_pol||²
+```
 
 CRPS has a closed form for Gaussians and is reported on holdout for
 calibration, not just accuracy.
@@ -279,7 +274,7 @@ calibration, not just accuracy.
 - Holdout fraction: {config.train.holdout_frac}.
 - Seed: {config.seed}. Embedding dim: {config.representation.embedding_dim}.
 - Hashing is blake2b modulo {config.data.hash_dim}, character 3–5 grams,
-  \(\\ell_2\)-normalized. Deterministic across processes (unlike `hash()`).
+  L2-normalized. Deterministic across processes (unlike `hash()`).
 - JAX `vmap` + `eqx.filter_jit` over the full eligible train set. 13k titles
   is a small problem once features are precomputed; we do not re-tokenize.
 
@@ -309,7 +304,7 @@ calibration, not just accuracy.
 Keep the Equinox encoder. Replace hashed tags with parsed scenes. Precompute
 block embeddings once. Fine-tune. The residual head is already the experiment.
 The coverage report is already the go/no-go dashboard
-(`N_{{screenplay \\cap MovieLens}}`).
+(`N_screenplay ∩ MovieLens`).
 
 ---
 

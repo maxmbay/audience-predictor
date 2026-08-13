@@ -16,7 +16,7 @@ DOCUMENT_TYPES = (
 )
 
 _TIMECODE = re.compile(r"\d{2}:\d{2}:\d{2}[,.]\d{3}")
-_SRT_INDEX = re.compile(r"^\d+\s*$", re.MULTILINE)
+_SRT_ARROW = re.compile(r"-->")
 _SCENE = re.compile(r"^(INT\.|EXT\.|INT/EXT\.)", re.MULTILINE | re.IGNORECASE)
 _SPEAKER_COLON = re.compile(r"^[A-Z][A-Za-z .]{1,24}:\s+\S", re.MULTILINE)
 
@@ -44,10 +44,10 @@ class DocumentRecord:
 def classify_document(text: str) -> str:
     sample = text[:80_000]
     n_timecode = len(_TIMECODE.findall(sample))
-    n_srt = len(_SRT_INDEX.findall(sample[:5000]))
+    n_arrow = len(_SRT_ARROW.findall(sample))
     n_scene = len(_SCENE.findall(sample))
     n_colon = len(_SPEAKER_COLON.findall(sample))
-    if n_timecode >= 5 or (n_srt >= 8 and n_scene == 0):
+    if n_timecode >= 2 or (n_arrow >= 2 and n_scene == 0):
         return "subtitle"
     if n_scene >= 3:
         if re.search(r"\b(MORE|CONT'D|CONTINUED:)\b", sample):

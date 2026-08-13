@@ -8,7 +8,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
-from audience_predictor.data.bridge import genome_scores_path, genome_tags_path, processed_dir
+from audience_predictor.data.bridge import genome_scores_path, genome_tags_path
 
 FloatArray = NDArray[np.float32]
 YEAR_RE = re.compile(r"\((\d{4})\)\s*$")
@@ -41,8 +41,8 @@ def parse_year(title: str) -> int | None:
 
 
 def genome_matrix(movies: pl.DataFrame, *, root=None) -> FloatArray:
-    scores = pl.read_parquet(genome_scores_path(root) if root else processed_dir() / "genome_scores.parquet")
-    tags = pl.read_parquet(genome_tags_path(root) if root else processed_dir() / "genome_tags.parquet")
+    scores = pl.read_parquet(genome_scores_path(root))
+    tags = pl.read_parquet(genome_tags_path(root))
     n_movies = int(movies["movie_row"].max()) + 1
     n_tags = tags.height
     joined = scores.join(movies.select(["movieId", "movie_row"]), on="movieId", how="inner")

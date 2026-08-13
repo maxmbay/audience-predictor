@@ -1,5 +1,10 @@
-from audience_predictor.data.entity_resolution import normalize_title, resolve_imdb, resolve_title_year
 import polars as pl
+
+from audience_predictor.data.entity_resolution import (
+    normalize_title,
+    resolve_imdb,
+    resolve_title_year,
+)
 
 
 def test_normalize_flips_article():

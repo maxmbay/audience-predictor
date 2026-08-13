@@ -7,7 +7,12 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 
-from audience_predictor.data.bridge import catalog_value_root, movies_path, ratings_path, titles_path
+from audience_predictor.data.bridge import (
+    catalog_value_root,
+    movies_path,
+    ratings_path,
+    titles_path,
+)
 from audience_predictor.data.genome import parse_year
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.paths import reports_dir

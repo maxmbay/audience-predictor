@@ -98,8 +98,6 @@ def tag_blocks_for_movies(
         bucket = per_movie.setdefault(int(row["movieId"]), [])
         if len(bucket) < max_blocks:
             bucket.append(str(row["tag"]))
-    dialogue_list: list[np.ndarray] = []
-    action_list: list[np.ndarray] = []
     structs = np.zeros((n, N_STRUCT), dtype=np.float32)
     types = np.array(["unknown"] * n, dtype=object)
     id_to_row = dict(zip(movies["movieId"].to_list(), movies["movie_row"].to_list()))

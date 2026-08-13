@@ -5,8 +5,6 @@ from __future__ import annotations
 import numpy as np
 import polars as pl
 
-from audience_predictor.eval.metrics import cosine
-
 
 def neighbor_table(
     movies: pl.DataFrame,
@@ -20,7 +18,6 @@ def neighbor_table(
     if hit.is_empty():
         return None
     idx = int(hit["movie_row"][0])
-    scores = cosine(z, z[idx : idx + 1].repeat(len(z), axis=0)) if False else None
     unit = z / np.clip(np.linalg.norm(z, axis=1, keepdims=True), 1e-8, None)
     scores = unit @ unit[idx]
     scores[idx] = -np.inf

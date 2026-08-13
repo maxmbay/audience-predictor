@@ -13,6 +13,7 @@ import jax.numpy as jnp
 
 def _safe_mask(mask: jax.Array) -> jax.Array:
     """Guarantee at least one True so attention does not see an empty set."""
+    mask = jnp.asarray(mask)
     return jnp.where(mask.any(), mask, mask.at[0].set(True))
 
 
@@ -36,9 +37,9 @@ class InducedAttention(eqx.Module):
     def __call__(self, scenes: jax.Array, mask: jax.Array) -> jax.Array:
         keep = _safe_mask(mask)
         kv_mask = jnp.broadcast_to(keep[None, :], (self.inducing.shape[0], scenes.shape[0]))
-        hidden = self.ln1(self.attn_in(self.inducing, scenes, scenes, mask=kv_mask))
-        q_mask = jnp.broadcast_to(keep[:, None], (scenes.shape[0], hidden.shape[0]))
-        return self.ln2(scenes + self.attn_out(scenes, hidden, hidden, mask=q_mask))
+        compressed = jax.vmap(self.ln1)(self.attn_in(self.inducing, scenes, scenes, mask=kv_mask))
+        q_mask = jnp.broadcast_to(keep[:, None], (scenes.shape[0], compressed.shape[0]))
+        return jax.vmap(self.ln2)(scenes + self.attn_out(scenes, compressed, compressed, mask=q_mask))
 
 
 class NarrativeSetEncoder(eqx.Module):
@@ -75,7 +76,7 @@ class NarrativeSetEncoder(eqx.Module):
         n_struct: int,
         key: jax.Array,
     ) -> None:
-        keys = jax.random.split(key, 10)
+        keys = jax.random.split(key, 11)
         self.hash_dim = hash_dim
         self.model_dim = model_dim
         self.out_dim = out_dim
@@ -90,7 +91,7 @@ class NarrativeSetEncoder(eqx.Module):
         self.mu_head = eqx.nn.Linear(model_dim, out_dim, key=keys[7])
         self.log_var_head = eqx.nn.Linear(model_dim, 1, key=keys[8])
         self.bias_head = eqx.nn.Linear(model_dim, 1, key=keys[9])
-        self.aux_head = eqx.nn.Linear(model_dim, 4, key=keys[0])
+        self.aux_head = eqx.nn.Linear(model_dim, 4, key=keys[10])
 
     def _pool(self, tokens: jax.Array, mask: jax.Array) -> jax.Array:
         keep = _safe_mask(mask)

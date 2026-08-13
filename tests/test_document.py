@@ -1,10 +1,9 @@
 from audience_predictor.data.document import classify_document, make_record
-from tests.conftest import SAMPLE_SCREENPLAY, SAMPLE_SRT
 
 
-def test_classifier_separates_screenplay_and_subtitle():
-    assert classify_document(SAMPLE_SCREENPLAY) == "screenplay"
-    assert classify_document(SAMPLE_SRT) == "subtitle"
+def test_classifier_separates_screenplay_and_subtitle(sample_screenplay, sample_srt):
+    assert classify_document(sample_screenplay) == "screenplay"
+    assert classify_document(sample_srt) == "subtitle"
 
 
 def test_transcript_heuristic():
@@ -12,10 +11,10 @@ def test_transcript_heuristic():
     assert classify_document(text) == "transcript"
 
 
-def test_provenance_record_never_collapses_type():
+def test_provenance_record_never_collapses_type(sample_screenplay):
     rec = make_record(
         document_id="doc-1",
-        text=SAMPLE_SCREENPLAY,
+        text=sample_screenplay,
         source="fixture",
         scene_count=3,
         parse_quality=1.0,
