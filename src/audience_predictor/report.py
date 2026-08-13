@@ -67,6 +67,7 @@ def _findings() -> str:
     sp_b = data.get("screenplay_bge", {}).get("holdout", {})
     dl_b = data.get("dialogue_bge", {}).get("holdout", {})
     sm = data.get("screenplay_mean", {}).get("holdout", {})
+    dm = data.get("dialogue_mean", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -96,7 +97,18 @@ def _findings() -> str:
         b_dl = dl_b.get("cosine_mean", 0) if dl_b else 0
         b_delta = b_sp - b_dl
         h2b = "supported" if b_delta > 0.01 else ("not supported" if b_delta < -0.01 else "too close to call")
-        mean_txt = f" Mean-pool screenplay is {sm.get('cosine_mean', 0):.3f}." if sm else ""
+        mean_txt = ""
+        if sm or dm:
+            parts = []
+            if dm:
+                parts.append(f"dialogue mean-pool {dm.get('cosine_mean', 0):.3f}")
+            if sm:
+                parts.append(f"screenplay mean-pool {sm.get('cosine_mean', 0):.3f}")
+            mean_txt = (
+                " Masked-average MLP reaches "
+                + " / ".join(parts)
+                + " — near metadata, well above the set encoder on the same vectors."
+            )
         gold_note += f"""
 - **H2 frozen BGE ({h2b}).** Same holdout, ONNX BGE-small scene embeddings:
   screenplay {b_sp:.3f} vs dialogue {b_dl:.3f} (Δ={b_delta:+.3f}).{mean_txt}

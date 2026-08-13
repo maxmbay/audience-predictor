@@ -119,6 +119,10 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 | genome_gold | 0.414 | 0.407 | 332 | 0.407 |
 | screenplay | 0.009 | 0.004 | 332 | 0.004 |
 | dialogue | 0.054 | 0.043 | 332 | 0.043 |
+| screenplay_bge | 0.025 | 0.023 | 332 | 0.023 |
+| dialogue_bge | 0.047 | 0.034 | 332 | 0.034 |
+| screenplay_mean | 0.167 | 0.149 | 332 | 0.149 |
+| dialogue_mean | 0.188 | 0.150 | 332 | 0.150 |
 
 
 ### What this run actually found
@@ -139,10 +143,14 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
   shrinks σ without making it track mistakes. Calibration needs a dedicated
   pass (temperature scaling or a proper heteroscedastic fit).
 
-- **H2 (not supported).** On MovieSum ∩ holdout (n=332), full screenplay
+- **H2 hashed (not supported).** On MovieSum ∩ holdout (n=332), full screenplay
   cosine is 0.004 vs dialogue-only 0.043 (Δ=-0.039).
   Matched-N genome (gold train only) is 0.407. Full-data genome scored on the same gold holdout is 0.436. Hashed n-grams of scene text do not recover z_i; a pretrained language encoder is the next lever, not more MovieSum scripts. Wikipedia summaries from MovieSum are **not** used — they leak
   post-release reception.
+
+- **H2 frozen BGE (not supported).** Same holdout, ONNX BGE-small scene embeddings:
+  screenplay 0.023 vs dialogue 0.034 (Δ=-0.011). Masked-average MLP reaches dialogue mean-pool 0.150 / screenplay mean-pool 0.149 — near metadata, well above the set encoder on the same vectors.
+  Equinox still trains the set aggregator; the language encoder is frozen.
 
 
 

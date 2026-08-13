@@ -221,7 +221,7 @@ Until gold scripts land, silver text (tags, synopses) plus genome/metadata answe
 
 ## Later branches (after PR 6)
 
-**Gold screenplays (MovieSum first).** `ingest-moviesum` parses the Hugging Face XML dump, joins `tt` IMDb ids onto the catalog-value spine, and writes provenance + hashed blocks. No script text in git. Train `screenplay` vs `dialogue` on the overlap only.
+**Frozen encoder (this branch).** `ingest-moviesum --encoder bge` precomputes ONNX BGE-small scene vectors. Train `dialogue_mean` / `screenplay_mean` (MLP on masked averages) and `dialogue_bge` / `screenplay_bge` (set transformer). Mean-pool is currently the stronger narrative baseline.
 
 **Silver subtitles.** SubtitleCF / SubLens-20M (~19k files named by imdbID), then OpenSubtitles via OPUS for pretraining scale.
 
