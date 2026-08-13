@@ -57,6 +57,7 @@ class NarrativeSetEncoder(eqx.Module):
     query: jax.Array
     pma: eqx.nn.MultiheadAttention
     ln_pma: eqx.nn.LayerNorm
+    ln_struct: eqx.nn.LayerNorm
     delta_mlp: eqx.nn.Linear
     mu_head: eqx.nn.Linear
     log_var_head: eqx.nn.Linear
@@ -87,6 +88,7 @@ class NarrativeSetEncoder(eqx.Module):
         self.query = jax.random.normal(keys[4], (1, model_dim)) * 0.02
         self.pma = eqx.nn.MultiheadAttention(num_heads=n_heads, query_size=model_dim, key=keys[5])
         self.ln_pma = eqx.nn.LayerNorm(model_dim)
+        self.ln_struct = eqx.nn.LayerNorm(model_dim)
         self.delta_mlp = eqx.nn.Linear(model_dim, out_dim, key=keys[6])
         self.mu_head = eqx.nn.Linear(model_dim, out_dim, key=keys[7])
         self.log_var_head = eqx.nn.Linear(model_dim, 1, key=keys[8])
@@ -106,7 +108,7 @@ class NarrativeSetEncoder(eqx.Module):
 
     def encode_delta(self, action: jax.Array, structure: jax.Array, mask: jax.Array) -> jax.Array:
         tokens = jax.vmap(self.in_proj_a)(action)
-        pooled = self._pool(tokens, mask) + self.struct_proj(structure)
+        pooled = self._pool(tokens, mask) + self.ln_struct(self.struct_proj(structure))
         return self.delta_mlp(jax.nn.gelu(pooled))
 
     def __call__(

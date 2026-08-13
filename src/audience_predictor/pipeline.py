@@ -300,7 +300,7 @@ def run_figures(config: Config) -> Path:
         ablation_rows.append(
             (label, metrics["train"]["cosine_mean"], metrics["holdout"]["cosine_mean"])
         )
-        if modality in {"genome", "screenplay"} or primary is None:
+        if modality == "genome" or primary is None:
             primary = (modality, pred)
 
     if primary is None:

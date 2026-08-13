@@ -1,3 +1,5 @@
+import math
+
 from audience_predictor.data.screenplay_parser import parse_screenplay, structural_features
 
 
@@ -14,9 +16,12 @@ def test_parse_scene_headings_and_characters(sample_screenplay):
 
 
 def test_structural_features_are_finite(sample_screenplay):
-    stats = structural_features(parse_screenplay(sample_screenplay))
-    assert stats["n_scenes"] == 3
+    parsed = parse_screenplay(sample_screenplay)
+    stats = structural_features(parsed)
+    assert parsed.n_scenes == 3
+    assert stats["n_scenes"] == math.log1p(3)
     assert 0 < stats["dialogue_fraction"] < 1
-    assert stats["n_characters"] == 2
-    assert stats["graph_n_edges"] >= 1
+    assert stats["n_characters"] == math.log1p(2)
+    assert stats["graph_n_edges"] >= math.log1p(1)
     assert stats["character_entropy"] > 0
+    assert all(math.isfinite(v) for v in stats.values())

@@ -1,8 +1,8 @@
 # Coverage report
 
-Join spine: `catalog-value` core universe. Narrative documents are counted
-without collapsing document types. Gold screenplays are **not** in this
-repository; `N_screenplay ∩ MovieLens = 0`.
+Join spine: `catalog-value` core universe. Gold screenplay *text* is not in git
+(MovieSum is CC BY-NC 4.0; we store identifiers and derived features only).
+`N_screenplay ∩ MovieLens = 1823`.
 
 | Quantity | N |
 |----------|--:|
@@ -14,8 +14,9 @@ repository; `N_screenplay ∩ MovieLens = 0`.
 | ≥1,000 ratings | 3,794 |
 | ≥10,000 ratings | 588 |
 | With MovieLens user tags (silver text) | 13,027 |
-| Genuine screenplays | 0 |
-| Screenplay ∩ MovieLens | 0 |
+| Genuine screenplays (MovieSum) | 2,200 |
+| Screenplay ∩ MovieLens core | 1,823 |
+| Screenplay ∩ ≥1,000 ratings | 1,268 |
 | Core ratings | 24,639,608 |
 | Year range | 1896–2019 |
 

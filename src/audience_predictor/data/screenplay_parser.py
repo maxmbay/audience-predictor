@@ -172,18 +172,24 @@ def structural_features(parsed: ParsedScreenplay) -> dict[str, float]:
         co_edges += k * (k - 1) // 2
     density = co_edges / max(n_chars * (n_chars - 1) / 2, 1)
     return {
-        "n_scenes": float(parsed.n_scenes),
-        "median_scene_length": float(sorted(scene_lens)[len(scene_lens) // 2]),
+        "n_scenes": _log1p(parsed.n_scenes),
+        "median_scene_length": _log1p(sorted(scene_lens)[len(scene_lens) // 2]),
         "dialogue_fraction": dialogue_chars / total,
-        "action_density": action_chars / n_scenes,
-        "n_characters": float(n_chars),
+        "action_density": _log1p(action_chars / n_scenes),
+        "n_characters": _log1p(n_chars),
         "character_entropy": float(entropy),
         "location_entropy": float(loc_entropy),
-        "n_locations": float(len(loc_set)),
-        "graph_n_edges": float(co_edges),
+        "n_locations": _log1p(len(loc_set)),
+        "graph_n_edges": _log1p(co_edges),
         "graph_density": float(density),
         "scene_transition_rate": float(len(parsed.transitions)) / n_scenes,
     }
+
+
+def _log1p(value: float | int) -> float:
+    import math
+
+    return math.log1p(max(float(value), 0.0))
 
 
 STRUCT_KEYS = (

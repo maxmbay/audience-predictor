@@ -65,6 +65,10 @@ def _findings() -> str:
             extra.append(f"Matched-N genome (gold train only) is {gg.get('cosine_mean', 0):.3f}.")
         if g_gold:
             extra.append(f"Full-data genome scored on the same gold holdout is {g_gold.get('cosine_mean', 0):.3f}.")
+        if max(sp_cos, dl_cos) < 0.1:
+            extra.append(
+                "Hashed n-grams of scene text do not recover z_i; a pretrained language encoder is the next lever, not more MovieSum scripts."
+            )
         extra_txt = " ".join(extra)
         gold_note = f"""
 - **H2 ({h2}).** On MovieSum ∩ holdout (n={sp.get('n', 0)}), full screenplay

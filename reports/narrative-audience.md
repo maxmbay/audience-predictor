@@ -27,12 +27,12 @@ content-like signals:
 - MovieLens "genome" tags (a rich but non-narrative content baseline)
 - the words viewers themselves tag the film with (a silver stand-in for
   dialogue and cultural reception)
-- a **set transformer** that treats those tags (and, later, screenplay scenes)
-  as an unordered collection of story blocks
+- a **set transformer** over MovieSum scenes (dialogue vs full screenplay)
+  once the gold XML is ingested locally
 
-Until a gold corpus of several thousand genuine screenplays is licensed and
-parsed, we do **not** claim "the screenplay predicts the audience." We claim
-something more careful and already useful:
+MovieSum Wikipedia summaries are post-release text and are **never** used as
+screenplay input. A subtitle is not a screenplay; hashed user tags are not
+either.
 
 > Story-shaped information, encoded as a set of blocks with a probabilistic
 > Equinox model, recovers a meaningful slice of the audience a film eventually
@@ -77,11 +77,14 @@ metadata     genre + year
 genome       1,128 tag relevances + genre + year     ← bar to beat
 tags         hashed MovieLens user tags (bag)
 hierarchical set transformer over the same tags as blocks
-screenplay   parser ready; corpus not in git
+genome_gold  genome MLP trained only on MovieSum ∩ train
+dialogue     MovieSum spoken lines (action/structure zeroed)
+screenplay   MovieSum scenes + action + structure     ← H2
 ```
 
-Movie-level split: 20% of well-rated titles are held out entirely. The text
-model never sees their collaborative embedding during training.
+Movie-level split: 20% of well-rated titles are held out entirely. Screenplay
+and dialogue models train only on MovieSum ∩ train; they never see zeros for
+titles without a script.
 
 ### Architecture, in one picture
 
@@ -107,12 +110,15 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 
 ### Results so far
 
-| Modality | Train cosine | Holdout cosine | Holdout RMSE | Holdout NLL |
-|----------|-------------:|---------------:|-------------:|------------:|
-| metadata | 0.202 | 0.185 | 0.039 | -2.743 |
-| genome | 0.387 | 0.379 | 0.035 | -2.863 |
-| tags | 0.051 | 0.037 | 0.040 | -2.716 |
-| hierarchical | 0.002 | 0.002 | 0.114 | -1.560 |
+| Modality | Train cosine | Holdout cosine | Holdout n | Gold-holdout cosine |
+|----------|-------------:|---------------:|----------:|--------------------:|
+| metadata | 0.202 | 0.185 | 1,596 | 0.184 |
+| genome | 0.387 | 0.379 | 1,596 | 0.436 |
+| tags | 0.051 | 0.037 | 1,596 | 0.053 |
+| hierarchical | 0.002 | 0.002 | 1,596 | -0.019 |
+| genome_gold | 0.414 | 0.407 | 332 | 0.407 |
+| screenplay | 0.009 | 0.004 | 332 | 0.004 |
+| dialogue | 0.054 | 0.043 | 332 | 0.043 |
 
 
 ### What this run actually found
@@ -132,9 +138,12 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
   -0.01 on genome holdout. The NLL term
   shrinks σ without making it track mistakes. Calibration needs a dedicated
   pass (temperature scaling or a proper heteroscedastic fit).
-- **N_screenplay ∩ MovieLens is still 0.** The parser, provenance schema, and
-  residual head are waiting on a gold corpus. Do not read tag results as
-  screenplay results.
+
+- **H2 (not supported).** On MovieSum ∩ holdout (n=332), full screenplay
+  cosine is 0.004 vs dialogue-only 0.043 (Δ=-0.039).
+  Matched-N genome (gold train only) is 0.407. Full-data genome scored on the same gold holdout is 0.436. Hashed n-grams of scene text do not recover z_i; a pretrained language encoder is the next lever, not more MovieSum scripts. Wikipedia summaries from MovieSum are **not** used — they leak
+  post-release reception.
+
 
 
 ![ablation.png](figures/ablation.png)
@@ -176,15 +185,19 @@ depth, silver tags — is already in place.
 ```bash
 uv sync --dev
 uv run pytest
-uv run python -m audience_predictor coverage
-uv run python -m audience_predictor train --modality genome
-uv run python -m audience_predictor train --modality metadata
-uv run python -m audience_predictor train --modality tags
-uv run python -m audience_predictor train --modality hierarchical
-uv run python -m audience_predictor evaluate
-uv run python -m audience_predictor scaling
-uv run python -m audience_predictor figures
-uv run python -m audience_predictor report
+PYTHONPATH=src uv run python -m audience_predictor coverage
+PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome
+PYTHONPATH=src uv run python -m audience_predictor train --modality metadata
+PYTHONPATH=src uv run python -m audience_predictor train --modality tags
+PYTHONPATH=src uv run python -m audience_predictor train --modality hierarchical
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_gold
+PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue
+PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
+PYTHONPATH=src uv run python -m audience_predictor evaluate
+PYTHONPATH=src uv run python -m audience_predictor scaling
+PYTHONPATH=src uv run python -m audience_predictor figures
+PYTHONPATH=src uv run python -m audience_predictor report
 ```
 
 Checkpoints live in `outputs/<modality>/`. Figures live in `reports/figures/`.
@@ -257,7 +270,7 @@ calibration, not just accuracy.
 | ID | Claim | Status in this milestone |
 |----|-------|--------------------------|
 | H1 | Content predicts audience beyond metadata | Testable: genome vs metadata holdout cosine |
-| H2 | Full screenplay > dialogue | Structurally implemented; empirically pending gold scripts |
+| H2 | Full screenplay > dialogue | MovieSum gold: `screenplay` vs `dialogue` holdout cosine |
 | H3 | Silver pretrain helps gold | Pending gold scripts |
 | H4 | Multi-interest targets beat a single z | Target space is already multi-interest; not re-ablated here |
 | H5 | σ tracks error | `uncertainty.png` / Spearman(error, σ) |
@@ -275,9 +288,10 @@ calibration, not just accuracy.
 
 ### What "done" looks like for the gold-script era
 
-Keep the Equinox encoder. Replace hashed tags with parsed scenes. Precompute
-block embeddings once. Fine-tune. The residual head is already the experiment.
-The coverage report is already the go/no-go dashboard
+Keep the Equinox encoder. MovieSum is the first gold dump (identifiers and
+hashed blocks only in `data/processed/gold/`, scripts stay in `data/raw/`).
+Next: SubLens-20M silver subtitles, then a real language encoder in place of
+blake2b hashing. The coverage report is the go/no-go dashboard
 (`N_screenplay ∩ MovieLens`).
 
 ---

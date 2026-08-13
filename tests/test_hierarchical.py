@@ -58,3 +58,13 @@ def test_vmap_over_movies(sample_screenplay):
     mu, log_var, bias, aux, z_d, delta = batched(d2, a2, m2, s2)
     assert mu.shape == (2, 8)
     assert log_var.shape == (2,)
+
+
+def test_large_structure_does_not_explode(sample_screenplay):
+    d, a, mask, struct = blocks_from_screenplay(sample_screenplay, hash_dim=32, max_blocks=8)
+    model = _model()
+    huge = jnp.asarray(struct[0]).at[:].set(1.0e4)
+    mu, log_var, *_ = model(d[0], a[0], mask[0], huge)
+    assert np.isfinite(np.asarray(mu)).all()
+    assert float(np.linalg.norm(mu)) < 50.0
+    assert float(np.exp(0.5 * np.asarray(log_var))) < 10.0
