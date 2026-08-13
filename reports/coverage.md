@@ -17,6 +17,9 @@ Join spine: `catalog-value` core universe. Gold screenplay *text* is not in git
 | Genuine screenplays (MovieSum) | 2,200 |
 | Screenplay ∩ MovieLens core | 1,823 |
 | Screenplay ∩ ≥1,000 ratings | 1,268 |
+| Silver subtitles (SubLens-20M) | 21,627 |
+| Subtitle ∩ MovieLens core | 11,095 |
+| Subtitle ∩ ≥1,000 ratings | 3,623 |
 | Core ratings | 24,639,608 |
 | Year range | 1896–2019 |
 

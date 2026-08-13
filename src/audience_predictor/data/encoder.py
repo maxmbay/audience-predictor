@@ -67,12 +67,21 @@ class BgeEncoder:
         return self._model
 
     def embed_many(self, texts: list[str]) -> FloatArray:
+        from tqdm import tqdm
+
         out = np.zeros((len(texts), self.dim), dtype=np.float32)
         indexed = [(i, f"passage: {t.strip()}") for i, t in enumerate(texts) if t.strip()]
         if not indexed:
             return out
         model = self._load()
-        vecs = list(model.embed((body for _, body in indexed), batch_size=64))
+        bodies = [body for _, body in indexed]
+        vecs = list(
+            tqdm(
+                model.embed(bodies, batch_size=64),
+                total=len(bodies),
+                desc=f"bge embed ({self.model_name})",
+            )
+        )
         for (i, _), vec in zip(indexed, vecs, strict=True):
             out[i] = np.asarray(vec, dtype=np.float32)
         return out

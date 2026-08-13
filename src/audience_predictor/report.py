@@ -138,15 +138,24 @@ def _findings() -> str:
   narrative baseline.
 """
     if sub or sub_m:
-        s_cos = sub.get("cosine_mean", 0) if sub else 0
-        sm_cos = sub_m.get("cosine_mean", 0) if sub_m else 0
-        n_sub = (sub_m or sub).get("n", 0)
+        parts = []
+        n_sub = 0
+        if sub:
+            parts.append(f"hashed mean-pool {sub.get('cosine_mean', 0):.3f}")
+            n_sub = sub.get("n", 0)
+        if sub_m:
+            parts.append(f"BGE mean-pool {sub_m.get('cosine_mean', 0):.3f}")
+            n_sub = sub_m.get("n", 0)
         gold_note += f"""
 - **H3 silver subtitles.** SubLens-20M dialogue on the MovieLens overlap
-  (holdout n={n_sub}): hashed mean-pool {s_cos:.3f}, BGE mean-pool {sm_cos:.3f}.
-  `document_type=subtitle` is never collapsed with screenplay. This tests whether
-  more spoken dialogue, not more scripts, closes the gap to genome.
+  (holdout n={n_sub}): {", ".join(parts)}.
+  `document_type=subtitle` is never collapsed with screenplay.
 """
+        if sub and not sub_m and sub.get("cosine_mean", 0) < 0.1:
+            gold_note += (
+                "  Hashed n-grams stay weak even at 6× MovieSum N; frozen BGE on this"
+                " overlap is the next measurement.\n"
+            )
     if not gold_note:
         gold_note = """
 - **N_screenplay ∩ MovieLens is still 0 in this checkpoint.** Run
