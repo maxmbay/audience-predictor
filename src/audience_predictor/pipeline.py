@@ -295,7 +295,7 @@ def run_scaling(config: Config) -> Path:
         model, _ = train_mlp(
             x, z, bias, aux, idx,
             hidden=config.representation.hidden,
-            epochs=max(20, config.train.epochs // 2),
+            epochs=config.train.epochs,
             lr=config.train.lr,
             weight_decay=config.train.weight_decay,
             nll_weight=config.train.nll_weight,

@@ -23,11 +23,12 @@ JAX, Equinox, Optax, Polars. PyTorch stays in `catalog-value`; this repo does no
 ```bash
 uv sync --dev
 cp .env.example .env   # set CATALOG_VALUE_ROOT if the sibling path is nonstandard
-uv run pytest
-uv run python -m audience_predictor coverage
-uv run python -m audience_predictor train --modality genome
-uv run python -m audience_predictor evaluate
-uv run python -m audience_predictor figures
+PYTHONPATH=src uv run pytest
+PYTHONPATH=src uv run python -m audience_predictor coverage
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome
+PYTHONPATH=src uv run python -m audience_predictor evaluate
+PYTHONPATH=src uv run python -m audience_predictor figures
+PYTHONPATH=src uv run python -m audience_predictor report
 ```
 
 ## Documentation

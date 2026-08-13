@@ -36,6 +36,41 @@ def _metrics_block() -> str:
     return "\n".join(lines)
 
 
+def _findings() -> str:
+    path = output_dir() / "ablation.json"
+    if not path.exists():
+        return ""
+    data = json.loads(path.read_text())
+    g = data.get("genome", {}).get("holdout", {})
+    m = data.get("metadata", {}).get("holdout", {})
+    t = data.get("tags", {}).get("holdout", {})
+    h = data.get("hierarchical", {}).get("holdout", {})
+    if not g:
+        return ""
+    return f"""
+### What this run actually found
+
+- **H1 holds for genome tags, not for hashed language.** Genome holdout cosine
+  is {g.get('cosine_mean', 0):.3f} vs metadata {m.get('cosine_mean', 0):.3f}.
+  Content structure beats a one-sheet. Character-n-gram bags of user tags
+  ({t.get('cosine_mean', 0):.3f}) and the set transformer over those bags
+  ({h.get('cosine_mean', 0):.3f}) do **not** recover the 64-d fingerprint.
+  The architecture is ready for real scene embeddings; hashing is not a
+  substitute for a pretrained language encoder.
+- **Polarization is the surprising win.** Genome Spearman with observed
+  mean rating is {g.get('spearman_mean_rating', 0):.2f}, with P(love)
+  {g.get('spearman_p_love', 0):.2f} and P(hate) {g.get('spearman_p_hate', 0):.2f}.
+  Even a moderate embedding cosine can still rank which films split a room.
+- **H5 is not supported yet.** Spearman(error, σ) is
+  {g.get('error_vs_sigma_spearman', 0):.2f} on genome holdout. The NLL term
+  shrinks σ without making it track mistakes. Calibration needs a dedicated
+  pass (temperature scaling or a proper heteroscedastic fit).
+- **N_screenplay ∩ MovieLens is still 0.** The parser, provenance schema, and
+  residual head are waiting on a gold corpus. Do not read tag results as
+  screenplay results.
+"""
+
+
 def _fig(name: str) -> str:
     path = figures_dir() / name
     rel = Path("figures") / name
@@ -162,6 +197,8 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 ### Results so far
 
 {_metrics_block()}
+
+{_findings()}
 
 {_fig("ablation.png")}
 
