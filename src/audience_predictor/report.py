@@ -122,11 +122,16 @@ def _findings() -> str:
         p_sp = sp_p.get("cosine_mean", 0) if sp_p else 0
         p_dl = dl_p.get("cosine_mean", 0) if dl_p else 0
         p_delta = p_sp - p_dl
-        h2p = "supported" if p_delta > 0.01 else ("not supported" if p_delta < -0.01 else "too close to call")
+        if max(p_sp, p_dl) < 0.1:
+            h2p = "not supported; recovery still weak"
+        else:
+            h2p = "supported" if p_delta > 0.01 else ("not supported" if p_delta < -0.01 else "too close to call")
         gold_note += f"""
 - **H2 PMA-only ({h2p}).** Dropping ISAB, a learned query attends over projected BGE
   scenes: screenplay {p_sp:.3f} vs dialogue {p_dl:.3f} (Δ={p_delta:+.3f}).
-  Tests whether induced attention was scrambling frozen geometry.
+  Attention pooling still sits well below masked-average MLP; induced attention
+  was not the only thing scrambling frozen geometry. Mean-pool remains the
+  narrative baseline.
 """
     if not gold_note:
         gold_note = """

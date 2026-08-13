@@ -123,6 +123,8 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 | dialogue_bge | 0.047 | 0.034 | 332 | 0.034 |
 | screenplay_mean | 0.167 | 0.149 | 332 | 0.149 |
 | dialogue_mean | 0.188 | 0.150 | 332 | 0.150 |
+| screenplay_pma | 0.055 | 0.037 | 332 | 0.037 |
+| dialogue_pma | 0.027 | 0.019 | 332 | 0.019 |
 
 
 ### What this run actually found
@@ -151,6 +153,12 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 - **H2 frozen BGE (not supported).** Same holdout, ONNX BGE-small scene embeddings:
   screenplay 0.023 vs dialogue 0.034 (Δ=-0.011). Masked-average MLP reaches dialogue mean-pool 0.150 / screenplay mean-pool 0.149 — near metadata, well above the set encoder on the same vectors.
   Equinox still trains the set aggregator; the language encoder is frozen.
+
+- **H2 PMA-only (not supported; recovery still weak).** Dropping ISAB, a learned query attends over projected BGE
+  scenes: screenplay 0.037 vs dialogue 0.019 (Δ=+0.018).
+  Attention pooling still sits well below masked-average MLP; induced attention
+  was not the only thing scrambling frozen geometry. Mean-pool remains the
+  narrative baseline.
 
 
 

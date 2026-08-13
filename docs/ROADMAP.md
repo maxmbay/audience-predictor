@@ -223,7 +223,7 @@ Until gold scripts land, silver text (tags, synopses) plus genome/metadata answe
 
 **Frozen encoder.** `ingest-moviesum --encoder bge` precomputes ONNX BGE-small scene vectors. Mean-pool MLP (`dialogue_mean` / `screenplay_mean`) is the stronger narrative baseline; ISAB over the same vectors underperforms.
 
-**PMA-only aggregator (this branch).** `dialogue_pma` / `screenplay_pma` skip induced attention and pool with a learned query over projected BGE scenes. Same MovieSum overlap; no re-ingest.
+**PMA-only aggregator (this branch).** `dialogue_pma` / `screenplay_pma` skip induced attention and pool with a learned query over projected BGE scenes. Same MovieSum overlap; no re-ingest. Attention pooling still loses to mean-pool; next lever is more dialogue (silver subtitles) or a stronger frozen encoder on the mean-pool baseline.
 
 **Silver subtitles.** SubtitleCF / SubLens-20M (~19k files named by imdbID), then OpenSubtitles via OPUS for pretraining scale.
 
