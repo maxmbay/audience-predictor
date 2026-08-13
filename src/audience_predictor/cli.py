@@ -45,6 +45,8 @@ def main(argv: list[str] | None = None) -> None:
             "dialogue_bge",
             "screenplay_mean",
             "dialogue_mean",
+            "screenplay_pma",
+            "dialogue_pma",
         ),
         default="genome",
     )

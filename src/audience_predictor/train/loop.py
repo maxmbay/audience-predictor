@@ -114,6 +114,7 @@ def train_set_encoder(
     aux_weight: float,
     bias_weight: float,
     seed: int,
+    pool: str = "isab",
     make_model: Callable[[jax.Array], NarrativeSetEncoder] | None = None,
 ) -> tuple[NarrativeSetEncoder, list[float]]:
     key = jax.random.key(seed)
@@ -126,6 +127,7 @@ def train_set_encoder(
             n_inducing=n_inducing,
             n_struct=structure.shape[-1],
             key=key,
+            pool=pool,
         )
     else:
         model = make_model(key)

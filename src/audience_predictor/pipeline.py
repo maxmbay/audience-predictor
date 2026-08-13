@@ -115,6 +115,8 @@ MODALITIES = (
     "dialogue_bge",
     "screenplay_mean",
     "dialogue_mean",
+    "screenplay_pma",
+    "dialogue_pma",
 )
 
 
@@ -214,8 +216,16 @@ def run_train(config: Config, modality: str) -> Path:
         pred = predict_set_encoder(model, batch)
         save_checkpoint(out / "model.eqx", model)
         np.savez_compressed(out / "residual.npz", z_dialogue=pred["z_dialogue"], delta=pred["delta"])
-    elif modality in {"screenplay", "dialogue", "screenplay_bge", "dialogue_bge"}:
-        encoder = "bge" if modality.endswith("_bge") else "hash"
+    elif modality in {
+        "screenplay",
+        "dialogue",
+        "screenplay_bge",
+        "dialogue_bge",
+        "screenplay_pma",
+        "dialogue_pma",
+    }:
+        encoder = "hash" if modality in {"screenplay", "dialogue"} else "bge"
+        pool = "pma" if modality.endswith("_pma") else "isab"
         batch = load_moviesum_blocks(encoder)
         gold = gold_movie_rows()
         used_train, used_hold = _gold_split(split, gold, batch.mask)
@@ -226,8 +236,9 @@ def run_train(config: Config, modality: str) -> Path:
             batch.dialogue, action, batch.mask, structure,
             z, bias, aux, used_train,
             model_dim=rep.model_dim, out_dim=rep.embedding_dim, n_heads=rep.n_heads,
-            n_inducing=rep.n_inducing, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
-            nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+            n_inducing=rep.n_inducing, pool=pool, epochs=cfg.epochs, lr=cfg.lr,
+            weight_decay=cfg.weight_decay, nll_weight=cfg.nll_weight,
+            aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
             seed=config.seed,
         )
         eval_batch = NarrativeBatch(
@@ -319,6 +330,8 @@ def run_figures(config: Config) -> Path:
         ("screenplay_bge", "BGE screenplay"),
         ("dialogue_mean", "BGE dialogue mean-pool"),
         ("screenplay_mean", "BGE screenplay mean-pool"),
+        ("dialogue_pma", "BGE dialogue PMA"),
+        ("screenplay_pma", "BGE screenplay PMA"),
     ):
         pred_path = output_dir() / modality / "predictions.npz"
         if not pred_path.exists():

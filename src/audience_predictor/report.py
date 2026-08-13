@@ -26,6 +26,8 @@ def _metrics_block() -> str:
             "dialogue_bge",
             "screenplay_mean",
             "dialogue_mean",
+            "screenplay_pma",
+            "dialogue_pma",
         ):
             p = output_dir() / name / "metrics.json"
             if p.exists():
@@ -68,6 +70,8 @@ def _findings() -> str:
     dl_b = data.get("dialogue_bge", {}).get("holdout", {})
     sm = data.get("screenplay_mean", {}).get("holdout", {})
     dm = data.get("dialogue_mean", {}).get("holdout", {})
+    sp_p = data.get("screenplay_pma", {}).get("holdout", {})
+    dl_p = data.get("dialogue_pma", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -113,6 +117,16 @@ def _findings() -> str:
 - **H2 frozen BGE ({h2b}).** Same holdout, ONNX BGE-small scene embeddings:
   screenplay {b_sp:.3f} vs dialogue {b_dl:.3f} (Δ={b_delta:+.3f}).{mean_txt}
   Equinox still trains the set aggregator; the language encoder is frozen.
+"""
+    if sp_p or dl_p:
+        p_sp = sp_p.get("cosine_mean", 0) if sp_p else 0
+        p_dl = dl_p.get("cosine_mean", 0) if dl_p else 0
+        p_delta = p_sp - p_dl
+        h2p = "supported" if p_delta > 0.01 else ("not supported" if p_delta < -0.01 else "too close to call")
+        gold_note += f"""
+- **H2 PMA-only ({h2p}).** Dropping ISAB, a learned query attends over projected BGE
+  scenes: screenplay {p_sp:.3f} vs dialogue {p_dl:.3f} (Δ={p_delta:+.3f}).
+  Tests whether induced attention was scrambling frozen geometry.
 """
     if not gold_note:
         gold_note = """

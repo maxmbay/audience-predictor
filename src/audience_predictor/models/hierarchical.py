@@ -66,6 +66,7 @@ class NarrativeSetEncoder(eqx.Module):
     hash_dim: int = eqx.field(static=True)
     model_dim: int = eqx.field(static=True)
     out_dim: int = eqx.field(static=True)
+    pool: str = eqx.field(static=True)
 
     def __init__(
         self,
@@ -76,11 +77,15 @@ class NarrativeSetEncoder(eqx.Module):
         n_inducing: int,
         n_struct: int,
         key: jax.Array,
+        pool: str = "isab",
     ) -> None:
+        if pool not in {"isab", "pma", "mean"}:
+            raise ValueError(f"unknown pool {pool!r}; expected isab, pma, or mean")
         keys = jax.random.split(key, 11)
         self.hash_dim = hash_dim
         self.model_dim = model_dim
         self.out_dim = out_dim
+        self.pool = pool
         self.in_proj_d = eqx.nn.Linear(hash_dim, model_dim, key=keys[0])
         self.in_proj_a = eqx.nn.Linear(hash_dim, model_dim, key=keys[1])
         self.struct_proj = eqx.nn.Linear(n_struct, model_dim, key=keys[2])
@@ -97,7 +102,10 @@ class NarrativeSetEncoder(eqx.Module):
 
     def _pool(self, tokens: jax.Array, mask: jax.Array) -> jax.Array:
         keep = _safe_mask(mask)
-        encoded = self.isab(tokens, keep)
+        if self.pool == "mean":
+            weights = keep.astype(tokens.dtype)[:, None]
+            return (tokens * weights).sum(axis=0) / jnp.clip(weights.sum(), 1.0)
+        encoded = self.isab(tokens, keep) if self.pool == "isab" else tokens
         attn_mask = keep[None, :]
         pooled = self.pma(self.query, encoded, encoded, mask=attn_mask)
         return self.ln_pma(pooled[0])
