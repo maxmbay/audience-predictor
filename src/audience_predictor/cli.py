@@ -11,6 +11,7 @@ from audience_predictor.pipeline import (
     run_figures,
     run_ingest_moviesum,
     run_ingest_sublens,
+    run_model_card,
     run_predict,
     run_scaling,
     run_train,
@@ -68,6 +69,7 @@ def main(argv: list[str] | None = None) -> None:
     predict.add_argument("--text-file", type=Path, required=True, help="Screenplay, SRT, or prose")
     sub.add_parser("evaluate", help="Summarize trained modalities on the movie-level holdout")
     sub.add_parser("figures", help="Write report figures from trained checkpoints")
+    sub.add_parser("model-card", help="Write baseline DAG and model-card figures")
     sub.add_parser("scaling", help="Holdout cosine vs number of training titles (genome)")
     sub.add_parser("report", help="Write the three-register technical report")
     args = parser.parse_args(argv)
@@ -89,6 +91,8 @@ def main(argv: list[str] | None = None) -> None:
         run_evaluate(config)
     elif args.command == "figures":
         run_figures(config)
+    elif args.command == "model-card":
+        print(run_model_card(config))
     elif args.command == "scaling":
         run_scaling(config)
     elif args.command == "report":

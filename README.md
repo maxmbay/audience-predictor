@@ -43,8 +43,10 @@ in that dump are post-release text and are not used as input.
 
 ## Documentation
 
+- [Baseline model](docs/MODEL.md) — parked map, DAG, honesty split, how later branches should compare
 - [PR roadmap](docs/ROADMAP.md) — six stacked PRs, testing/training/narrative plan
-- [Research report](reports/narrative-audience.md) — three registers, from lay to technical (PR 6)
+- [Research report](reports/narrative-audience.md) — three registers, from lay to technical
+- [Lab log](https://github.com/maxmbay/audience-predictor/issues/1) — experimental record
 
 ## Scientific guardrails
 

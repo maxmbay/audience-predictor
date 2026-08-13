@@ -227,7 +227,7 @@ Until gold scripts land, silver text (tags, synopses) plus genome/metadata answe
 
 **Silver subtitles.** `ingest-sublens --encoder bge` caches frozen BGE-small dialogue windows. Mean-pool holdout cosine is 0.123 — above hashing (0.033), below metadata (0.185) and genome (0.379). Direct text→z is the wrong jump.
 
-**Script-visible genome.** Partition 1,128 tags into script / production / reception. Oracle `genome_script` is the predictive ceiling. `script_tags` trains ISAB+position over BGE blocks to independent tag relevances, then the audience MLP. `predict --text-file` is the drop-in path.
+**Baseline model card.** `docs/MODEL.md` is the parked map. Later branches compare against BGE mean-pool `predict`, not against genome cosine. Genome is a realized-film comparison. `python -m audience_predictor model-card` writes the DAG and signature figures.
 
 **More gold identifiers.** Script Savant, IMSDb, SimplyScripts, Daily Script, Script Slug — collect identifiers and join; do not scrape as the first ingest.
 

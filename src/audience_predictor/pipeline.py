@@ -22,9 +22,12 @@ from audience_predictor.data.coverage import write_coverage_report
 from audience_predictor.data.genome import (
     content_features,
     genome_bucket_matrix,
+    genome_matrix,
+    genome_tag_names,
     parse_year,
     side_features,
 )
+from audience_predictor.data.genome_buckets import bucket_tag
 from audience_predictor.data.hasher import hash_embed
 from audience_predictor.data.infer import blocks_from_document
 from audience_predictor.data.moviesum import (
@@ -74,6 +77,14 @@ from audience_predictor.viz.figures import (
     plot_residual,
     plot_scaling,
     plot_uncertainty,
+)
+from audience_predictor.viz.model_card import (
+    plot_architecture_dag,
+    plot_baseline_atlas,
+    plot_honesty_ladder,
+    plot_tag_constellation,
+    plot_two_step,
+    plot_usefulness_plane,
 )
 from audience_predictor.viz.style import figures_dir
 
@@ -605,6 +616,98 @@ def run_figures(config: Config) -> Path:
         plot_scaling(payload["sizes"], payload["holdout_cosine"], figs / "scaling.png")
 
     print(f"Wrote figures under {figs}")
+    run_model_card(config)
+    return figs
+
+
+def _holdout_block(data: dict, name: str) -> dict:
+    return (data.get(name) or {}).get("holdout") or {}
+
+
+def run_model_card(config: Config) -> Path:
+    """Write the signature baseline figures used by docs/MODEL.md."""
+    root, movies, z, _bias, _n_ratings, _aux, _split, _years = _load_spine(config)
+    figs = figures_dir() / "model"
+    figs.mkdir(parents=True, exist_ok=True)
+    ablation_path = output_dir() / "ablation.json"
+    data = json.loads(ablation_path.read_text()) if ablation_path.exists() else {}
+
+    def cos(name: str) -> float:
+        return float(_holdout_block(data, name).get("cosine_mean", 0.0))
+
+    def spear(name: str) -> float:
+        return float(_holdout_block(data, name).get("spearman_mean_rating", 0.0))
+
+    plot_architecture_dag(figs / "dag.png")
+    plot_honesty_ladder(
+        [
+            ("BGE screenplay mean-pool", cos("screenplay_mean"), "script"),
+            ("BGE dialogue mean-pool", cos("dialogue_mean"), "script"),
+            ("BGE subtitle mean-pool  ← parked baseline", cos("subtitle_mean"), "script"),
+            ("oracle script-visible tags", cos("genome_script"), "script"),
+            ("oracle production tags", cos("genome_production"), "production"),
+            ("oracle reception tags (Oscars, masterpiece)", cos("genome_reception"), "release"),
+            ("full genome + genre + year", cos("genome"), "release"),
+            ("genre + year", cos("metadata"), "baseline"),
+            ("hashed subtitles", cos("subtitle"), "baseline"),
+            ("predicted tags (ISAB)", cos("script_tags"), "baseline"),
+        ],
+        figs / "honesty_ladder.png",
+    )
+    plot_usefulness_plane(
+        [
+            ("genome", cos("genome"), spear("genome"), "leak"),
+            ("reception tags", cos("genome_reception"), spear("genome_reception"), "leak"),
+            ("script-visible oracle", cos("genome_script"), spear("genome_script"), "ceiling"),
+            ("production tags", cos("genome_production"), spear("genome_production"), "ceiling"),
+            ("metadata", cos("metadata"), spear("metadata"), "fail"),
+            ("subtitle BGE", cos("subtitle_mean"), spear("subtitle_mean"), "narrative"),
+            ("dialogue BGE", cos("dialogue_mean"), spear("dialogue_mean"), "narrative"),
+            ("hashed subtitles", cos("subtitle"), spear("subtitle"), "fail"),
+            ("ISAB → tags", cos("script_tags"), spear("script_tags"), "fail"),
+        ],
+        figs / "usefulness_plane.png",
+    )
+    names = genome_tag_names(root)
+    buckets = [bucket_tag(n) for n in names]
+    plot_tag_constellation(
+        genome_matrix(movies, root=root),
+        buckets,
+        names,
+        figs / "tag_constellation.png",
+    )
+    plot_two_step(
+        cos("genome_script"),
+        cos("script_tags"),
+        cos("script_tags_mean"),
+        cos("subtitle_mean"),
+        figs / "two_step.png",
+    )
+
+    xy = np.load(atlas_path(root))["xy"]
+    pca = PCA(n_components=2, random_state=config.seed).fit(z)
+    genome_pred = output_dir() / "genome" / "predictions.npz"
+    narr_pred = output_dir() / "subtitle_mean" / "predictions.npz"
+    if genome_pred.exists() and narr_pred.exists():
+        g = np.load(genome_pred)
+        n = np.load(narr_pred)
+        title_list = movies.sort("movie_row")["title"].to_list()
+        probes = []
+        for name in config.eval.probes:
+            hit = movies.filter(pl.col("title") == name)
+            if not hit.is_empty():
+                probes.append(int(hit["movie_row"][0]))
+        plot_baseline_atlas(
+            xy,
+            pca.transform(g["mu"]),
+            pca.transform(n["mu"]),
+            g["holdout_mask"].astype(bool),
+            n["holdout_mask"].astype(bool),
+            title_list,
+            probes[:5],
+            figs / "atlas_dual.png",
+        )
+    print(f"Wrote model-card figures under {figs}")
     return figs
 
 

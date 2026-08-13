@@ -11,3 +11,4 @@ def test_cli_help(capsys):
     assert "ingest-moviesum" in out
     assert "ingest-sublens" in out
     assert "predict" in out
+    assert "model-card" in out
