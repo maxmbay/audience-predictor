@@ -126,6 +126,7 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 | screenplay_pma | 0.055 | 0.037 | 332 | 0.037 |
 | dialogue_pma | 0.027 | 0.019 | 332 | 0.019 |
 | subtitle | 0.040 | 0.033 | 1,446 | 0.020 |
+| subtitle_mean | 0.130 | 0.123 | 1,446 | 0.084 |
 
 
 ### What this run actually found
@@ -162,9 +163,8 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
   narrative baseline.
 
 - **H3 silver subtitles.** SubLens-20M dialogue on the MovieLens overlap
-  (holdout n=1446): hashed mean-pool 0.033.
+  (holdout n=1446): hashed mean-pool 0.033, BGE mean-pool 0.123.
   `document_type=subtitle` is never collapsed with screenplay.
-  Hashed n-grams stay weak even at 6× MovieSum N; frozen BGE on this overlap is the next measurement.
 
 
 
