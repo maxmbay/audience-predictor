@@ -127,6 +127,11 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 | dialogue_pma | 0.027 | 0.019 | 332 | 0.019 |
 | subtitle | 0.040 | 0.033 | 1,446 | 0.020 |
 | subtitle_mean | 0.130 | 0.123 | 1,446 | 0.084 |
+| genome_script | 0.330 | 0.324 | 1,596 | 0.383 |
+| genome_production | 0.348 | 0.346 | 1,596 | 0.399 |
+| genome_reception | 0.364 | 0.362 | 1,596 | 0.424 |
+| script_tags | 0.029 | 0.024 | 1,446 | 0.024 |
+| script_tags_mean | 0.015 | 0.017 | 1,446 | 0.054 |
 
 
 ### What this run actually found
@@ -165,6 +170,17 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 - **H3 silver subtitles.** SubLens-20M dialogue on the MovieLens overlap
   (holdout n=1446): hashed mean-pool 0.033, BGE mean-pool 0.123.
   `document_type=subtitle` is never collapsed with screenplay.
+
+- **Genome honesty split.** Oracle tags only, no genre/year:
+  script-visible 0.324, production 0.346,
+  reception 0.362. Full genome is 0.379.
+  The predictive ceiling is the script-visible bar; awards and franchise tags
+  are not on an undeveloped original.
+
+- **Script → tags → audience.** Independent script-visible relevances (not a simplex),
+  then the genome_script audience MLP. ISAB+position 0.024 (n=1446); mean-pool tags 0.017 (n=1446).
+  Predicted tags collapse toward the average profile; the 0.32 oracle ceiling
+  does not transfer yet. `predict --text-file` uses BGE mean-pool for z.
 
 
 
@@ -214,8 +230,11 @@ PYTHONPATH=src uv run python -m audience_predictor train --modality metadata
 PYTHONPATH=src uv run python -m audience_predictor train --modality tags
 PYTHONPATH=src uv run python -m audience_predictor train --modality hierarchical
 PYTHONPATH=src uv run python -m audience_predictor train --modality genome_gold
-PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue
-PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_script
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_production
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_reception
+PYTHONPATH=src uv run python -m audience_predictor train --modality script_tags
+PYTHONPATH=src uv run python -m audience_predictor predict --text-file path/to/script.txt
 PYTHONPATH=src uv run python -m audience_predictor evaluate
 PYTHONPATH=src uv run python -m audience_predictor scaling
 PYTHONPATH=src uv run python -m audience_predictor figures

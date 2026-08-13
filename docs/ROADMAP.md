@@ -225,7 +225,9 @@ Until gold scripts land, silver text (tags, synopses) plus genome/metadata answe
 
 **PMA-only aggregator.** `dialogue_pma` / `screenplay_pma` skip induced attention. Attention pooling still loses to mean-pool; mean-pool remains the narrative baseline.
 
-**Silver subtitles (this branch).** `ingest-sublens` parses SubLens-20M SRTs in IMDb-id folders, joins onto the catalog-value spine, and writes provenance + hashed blocks (no subtitle text). Hashed mean-pool does not beat MovieSum hashed dialogue despite 11k joined titles. Next: `ingest-sublens --encoder bge` then `train --modality subtitle_mean`.
+**Silver subtitles.** `ingest-sublens --encoder bge` caches frozen BGE-small dialogue windows. Mean-pool holdout cosine is 0.123 — above hashing (0.033), below metadata (0.185) and genome (0.379). Direct text→z is the wrong jump.
+
+**Script-visible genome.** Partition 1,128 tags into script / production / reception. Oracle `genome_script` is the predictive ceiling. `script_tags` trains ISAB+position over BGE blocks to independent tag relevances, then the audience MLP. `predict --text-file` is the drop-in path.
 
 **More gold identifiers.** Script Savant, IMSDb, SimplyScripts, Daily Script, Script Slug — collect identifiers and join; do not scrape as the first ingest.
 

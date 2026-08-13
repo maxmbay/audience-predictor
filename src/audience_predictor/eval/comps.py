@@ -32,3 +32,30 @@ def neighbor_table(
             "cosine": [float(scores[i]) for i in ranked],
         }
     )
+
+
+def neighbors_from_vector(
+    movies: pl.DataFrame,
+    catalog_z: np.ndarray,
+    mu: np.ndarray,
+    *,
+    k: int = 6,
+    min_ratings: int = 1500,
+) -> pl.DataFrame:
+    """Nearest catalog titles to an arbitrary predicted fingerprint."""
+    unit = catalog_z / np.clip(np.linalg.norm(catalog_z, axis=1, keepdims=True), 1e-8, None)
+    query = mu / max(float(np.linalg.norm(mu)), 1e-8)
+    scores = unit @ query
+    popular = set(
+        int(r) for r in movies.filter(pl.col("n_ratings") >= min_ratings)["movie_row"].to_list()
+    )
+    ranked = [int(i) for i in np.argsort(scores)[::-1] if int(i) in popular][:k]
+    titles = dict(zip(movies["movie_row"].to_list(), movies["title"].to_list()))
+    genres = dict(zip(movies["movie_row"].to_list(), movies["genres"].to_list()))
+    return pl.DataFrame(
+        {
+            "title": [titles[i] for i in ranked],
+            "genres": [genres[i] for i in ranked],
+            "cosine": [float(scores[i]) for i in ranked],
+        }
+    )

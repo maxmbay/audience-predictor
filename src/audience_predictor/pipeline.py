@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import jax
 import numpy as np
 import polars as pl
 from sklearn.decomposition import PCA
@@ -18,8 +19,14 @@ from audience_predictor.data.bridge import (
     titles_path,
 )
 from audience_predictor.data.coverage import write_coverage_report
-from audience_predictor.data.genome import content_features, parse_year, side_features
+from audience_predictor.data.genome import (
+    content_features,
+    genome_bucket_matrix,
+    parse_year,
+    side_features,
+)
 from audience_predictor.data.hasher import hash_embed
+from audience_predictor.data.infer import blocks_from_document
 from audience_predictor.data.moviesum import (
     gold_movie_rows,
     ingest_moviesum,
@@ -39,15 +46,22 @@ from audience_predictor.data.subtitles import (
 from audience_predictor.data.splits import movie_split
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
-from audience_predictor.eval.comps import neighbor_table
+from audience_predictor.data.encoder import get_encoder
+from audience_predictor.eval.comps import neighbor_table, neighbors_from_vector
 from audience_predictor.eval.metrics import cosine, recovery_metrics
+from audience_predictor.models.mlp import AudienceMLP
 from audience_predictor.paths import output_dir
 from audience_predictor.train.loop import (
+    load_checkpoint,
     predict_mlp,
     predict_set_encoder,
+    predict_tag_encoder,
+    predict_tag_mean_encoder,
     save_checkpoint,
     train_mlp,
     train_set_encoder,
+    train_tag_encoder,
+    train_tag_mean_encoder,
 )
 from audience_predictor.viz.figures import (
     plot_ablation,
@@ -134,7 +148,18 @@ MODALITIES = (
     "dialogue_pma",
     "subtitle",
     "subtitle_mean",
+    "genome_script",
+    "genome_production",
+    "genome_reception",
+    "script_tags",
+    "script_tags_mean",
 )
+
+GENOME_BUCKET_MODALITIES = {
+    "genome_script": "script",
+    "genome_production": "production",
+    "genome_reception": "reception",
+}
 
 
 def _gold_split(split, gold_rows: np.ndarray, mask: np.ndarray | None = None):
@@ -206,6 +231,107 @@ def run_train(config: Config, modality: str) -> Path:
             seed=config.seed,
         )
         pred = predict_mlp(model, x)
+        save_checkpoint(out / "model.eqx", model)
+    elif modality in GENOME_BUCKET_MODALITIES:
+        bucket = GENOME_BUCKET_MODALITIES[modality]
+        x = genome_bucket_matrix(movies, bucket, root=root)
+        print(f"{modality}: {x.shape[1]} {bucket} tags (no genre/year)")
+        model, history = train_mlp(
+            x, z, bias, aux, split.train_idx,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+            nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+            seed=config.seed,
+        )
+        pred = predict_mlp(model, x)
+        save_checkpoint(out / "model.eqx", model)
+    elif modality == "script_tags":
+        batch = load_sublens_blocks("bge")
+        silver = silver_movie_rows()
+        used_train, used_hold = _gold_split(split, silver, batch.mask)
+        y = genome_bucket_matrix(movies, "script", root=root)
+        tag_model, tag_history = train_tag_encoder(
+            batch.dialogue,
+            batch.mask,
+            y,
+            used_train,
+            model_dim=rep.hidden,
+            n_heads=rep.n_heads,
+            n_inducing=rep.n_inducing,
+            epochs=cfg.epochs,
+            lr=cfg.lr,
+            weight_decay=cfg.weight_decay,
+            seed=config.seed,
+            pool="isab",
+        )
+        tags_hat = predict_tag_encoder(tag_model, batch.dialogue, batch.mask)
+        save_checkpoint(out / "tag_encoder.eqx", tag_model)
+        (out / "tag_spec.json").write_text(
+            json.dumps(
+                {
+                    "in_dim": int(batch.dialogue.shape[-1]),
+                    "model_dim": int(rep.hidden),
+                    "n_tags": int(y.shape[1]),
+                    "n_heads": int(rep.n_heads),
+                    "n_inducing": int(rep.n_inducing),
+                    "pool": "isab",
+                    "bucket": "script",
+                    "mlp_hidden": int(rep.hidden),
+                    "out_dim": int(z.shape[1]),
+                },
+                indent=2,
+            )
+        )
+        np.savez_compressed(out / "predicted_tags.npz", tags=tags_hat, history=np.asarray(tag_history))
+        model, history = train_mlp(
+            tags_hat, z, bias, aux, used_train,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+            nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+            seed=config.seed,
+        )
+        pred = predict_mlp(model, tags_hat)
+        save_checkpoint(out / "model.eqx", model)
+    elif modality == "script_tags_mean":
+        batch = load_sublens_blocks("bge")
+        silver = silver_movie_rows()
+        used_train, used_hold = _gold_split(split, silver, batch.mask)
+        y = genome_bucket_matrix(movies, "script", root=root)
+        pooled = pooled_block_features(batch, include_action=False)
+        tag_model, tag_history = train_tag_mean_encoder(
+            pooled, y, used_train,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+            seed=config.seed,
+        )
+        tags_hat = predict_tag_mean_encoder(tag_model, pooled)
+        save_checkpoint(out / "tag_encoder.eqx", tag_model)
+        (out / "tag_spec.json").write_text(
+            json.dumps(
+                {
+                    "kind": "mean",
+                    "in_dim": int(pooled.shape[-1]),
+                    "hidden": int(rep.hidden),
+                    "n_tags": int(y.shape[1]),
+                    "bucket": "script",
+                    "mlp_hidden": int(rep.hidden),
+                    "out_dim": int(z.shape[1]),
+                },
+                indent=2,
+            )
+        )
+        np.savez_compressed(out / "predicted_tags.npz", tags=tags_hat, history=np.asarray(tag_history))
+        oracle_path = output_dir() / "genome_script" / "model.eqx"
+        if oracle_path.exists():
+            like = AudienceMLP(in_dim=y.shape[1], out_dim=z.shape[1], hidden=rep.hidden, key=jax.random.key(0))
+            model = load_checkpoint(oracle_path, like)
+            history = list(tag_history)
+            print("script_tags_mean: decoding tags with frozen genome_script MLP")
+        else:
+            model, history = train_mlp(
+                tags_hat, z, bias, aux, used_train,
+                hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+                nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+                seed=config.seed,
+            )
+        pred = predict_mlp(model, tags_hat)
         save_checkpoint(out / "model.eqx", model)
     elif modality == "tags":
         x = _tag_bags(movies, root, config.data.hash_dim)
@@ -365,6 +491,11 @@ def run_figures(config: Config) -> Path:
         ("screenplay_pma", "BGE screenplay PMA"),
         ("subtitle", "hashed subtitles"),
         ("subtitle_mean", "BGE subtitle mean-pool"),
+        ("genome_script", "script-visible genome (oracle)"),
+        ("genome_production", "production genome (oracle)"),
+        ("genome_reception", "reception genome (oracle)"),
+        ("script_tags", "predicted script-visible tags (ISAB)"),
+        ("script_tags_mean", "predicted script-visible tags (mean-pool)"),
     ):
         pred_path = output_dir() / modality / "predictions.npz"
         if not pred_path.exists():
@@ -475,6 +606,51 @@ def run_figures(config: Config) -> Path:
 
     print(f"Wrote figures under {figs}")
     return figs
+
+
+def run_predict(config: Config, text: str, *, k: int = 8) -> dict:
+    """Drop in any narrative text; print comps and polarization.
+
+    Fingerprint comes from frozen-BGE mean-pool → audience MLP (subtitle_mean),
+    the only narrative map that currently beats chance. Predicted genome tags
+    are not used for z until they beat this baseline.
+    """
+    mean_ckpt = output_dir() / "subtitle_mean" / "model.eqx"
+    if not mean_ckpt.exists():
+        raise FileNotFoundError("Train subtitle_mean before predict.")
+    encoder = get_encoder("bge")
+    dialogue, _action, mask, _struct, kind = blocks_from_document(
+        text, max_blocks=config.data.max_blocks, encoder=encoder
+    )
+    weights = mask.astype(np.float32)[..., None]
+    pooled = (dialogue * weights).sum(axis=1) / np.clip(weights.sum(axis=1), 1.0, None)
+    key = jax.random.key(0)
+    mlp_like = AudienceMLP(
+        in_dim=pooled.shape[-1],
+        out_dim=config.representation.embedding_dim,
+        hidden=config.representation.hidden,
+        key=key,
+    )
+    mlp = load_checkpoint(mean_ckpt, mlp_like)
+    pred = predict_mlp(mlp, pooled)
+    mu = pred["mu"][0]
+    aux = pred["aux"][0]
+    root, movies, z, _bias, _n_ratings, _aux, _split, _years = _load_spine(config)
+    comps = neighbors_from_vector(movies, z, mu, k=k)
+    result = {
+        "path": "subtitle_mean",
+        "document_type": kind,
+        "n_blocks": int(mask.sum()),
+        "polarization": {
+            "mean_rating": float(aux[0]),
+            "rating_std": float(aux[1]),
+            "p_love": float(aux[2]),
+            "p_hate": float(aux[3]),
+        },
+        "comps": comps.to_dicts() if comps is not None else [],
+    }
+    print(json.dumps(result, indent=2))
+    return result
 
 
 def run_scaling(config: Config) -> Path:

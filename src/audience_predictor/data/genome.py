@@ -9,6 +9,7 @@ import polars as pl
 from numpy.typing import NDArray
 
 from audience_predictor.data.bridge import genome_scores_path, genome_tags_path
+from audience_predictor.data.genome_buckets import Bucket, bucket_tag
 
 FloatArray = NDArray[np.float32]
 YEAR_RE = re.compile(r"\((\d{4})\)\s*$")
@@ -40,9 +41,13 @@ def parse_year(title: str) -> int | None:
     return int(match.group(1)) if match else None
 
 
+def load_genome_tags(root=None) -> pl.DataFrame:
+    return pl.read_parquet(genome_tags_path(root)).sort("tagId")
+
+
 def genome_matrix(movies: pl.DataFrame, *, root=None) -> FloatArray:
     scores = pl.read_parquet(genome_scores_path(root))
-    tags = pl.read_parquet(genome_tags_path(root))
+    tags = load_genome_tags(root)
     n_movies = int(movies["movie_row"].max()) + 1
     n_tags = tags.height
     joined = scores.join(movies.select(["movieId", "movie_row"]), on="movieId", how="inner")
@@ -50,6 +55,22 @@ def genome_matrix(movies: pl.DataFrame, *, root=None) -> FloatArray:
     tag_index = joined["tagId"].to_numpy() - 1
     mat[joined["movie_row"].to_numpy(), tag_index] = joined["relevance"].to_numpy().astype(np.float32)
     return mat
+
+
+def genome_tag_names(root=None) -> list[str]:
+    return [str(t) for t in load_genome_tags(root)["tag"].to_list()]
+
+
+def genome_bucket_mask(bucket: Bucket, *, root=None) -> np.ndarray:
+    names = genome_tag_names(root)
+    return np.array([bucket_tag(name) == bucket for name in names], dtype=bool)
+
+
+def genome_bucket_matrix(movies: pl.DataFrame, bucket: Bucket, *, root=None) -> FloatArray:
+    """Oracle genome columns that belong to one honesty bucket."""
+    full = genome_matrix(movies, root=root)
+    keep = genome_bucket_mask(bucket, root=root)
+    return full[:, keep]
 
 
 def side_features(movies: pl.DataFrame) -> FloatArray:

@@ -14,8 +14,9 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 
 from audience_predictor.models.hierarchical import NarrativeSetEncoder
-from audience_predictor.models.losses import gaussian_nll, mse
+from audience_predictor.models.losses import bce_soft, gaussian_nll, mse
 from audience_predictor.models.mlp import AudienceMLP
+from audience_predictor.models.tag_encoder import ScriptTagEncoder, TagMeanEncoder
 
 
 def _adamw(lr: float, weight_decay: float):
@@ -164,6 +165,105 @@ def train_set_encoder(
         if epoch == 0 or (epoch + 1) % 10 == 0:
             print(f"  epoch {epoch + 1}/{epochs}  loss={float(loss):.4f}")
     return model, history
+
+
+def train_tag_encoder(
+    blocks: NDArray[np.floating],
+    mask: NDArray[np.bool_],
+    tags: NDArray[np.floating],
+    train_idx: NDArray[np.integer],
+    *,
+    model_dim: int,
+    n_heads: int,
+    n_inducing: int,
+    epochs: int,
+    lr: float,
+    weight_decay: float,
+    seed: int,
+    pool: str = "isab",
+) -> tuple[ScriptTagEncoder, list[float]]:
+    key = jax.random.key(seed)
+    model = ScriptTagEncoder(
+        in_dim=blocks.shape[-1],
+        model_dim=model_dim,
+        n_tags=tags.shape[-1],
+        n_heads=n_heads,
+        n_inducing=n_inducing,
+        key=key,
+        pool=pool,
+    )
+    optim = _adamw(lr, weight_decay)
+    opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
+    xb = jnp.asarray(blocks[train_idx])
+    xm = jnp.asarray(mask[train_idx])
+    yt = jnp.asarray(tags[train_idx])
+
+    @eqx.filter_jit
+    def step(model, opt_state):
+        def loss_fn(model):
+            pred = jax.vmap(model)(xb, xm)
+            return bce_soft(pred, yt)
+
+        loss, grads = eqx.filter_value_and_grad(loss_fn)(model)
+        updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_inexact_array))
+        model = eqx.apply_updates(model, updates)
+        return model, opt_state, loss
+
+    history: list[float] = []
+    for epoch in tqdm(range(epochs), desc="script tag encoder"):
+        model, opt_state, loss = step(model, opt_state)
+        history.append(float(loss))
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            print(f"  epoch {epoch + 1}/{epochs}  loss={float(loss):.4f}")
+    return model, history
+
+
+def predict_tag_encoder(model: ScriptTagEncoder, blocks, mask) -> np.ndarray:
+    pred = jax.vmap(model)(jnp.asarray(blocks), jnp.asarray(mask))
+    return np.asarray(pred, dtype=np.float32)
+
+
+def train_tag_mean_encoder(
+    x: NDArray[np.floating],
+    tags: NDArray[np.floating],
+    train_idx: NDArray[np.integer],
+    *,
+    hidden: int,
+    epochs: int,
+    lr: float,
+    weight_decay: float,
+    seed: int,
+) -> tuple[TagMeanEncoder, list[float]]:
+    key = jax.random.key(seed)
+    model = TagMeanEncoder(in_dim=x.shape[1], hidden=hidden, n_tags=tags.shape[1], key=key)
+    optim = _adamw(lr, weight_decay)
+    opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
+    xt = jnp.asarray(x[train_idx])
+    yt = jnp.asarray(tags[train_idx])
+
+    @eqx.filter_jit
+    def step(model, opt_state):
+        def loss_fn(model):
+            pred = jax.vmap(model)(xt)
+            return mse(pred, yt)
+
+        loss, grads = eqx.filter_value_and_grad(loss_fn)(model)
+        updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_inexact_array))
+        model = eqx.apply_updates(model, updates)
+        return model, opt_state, loss
+
+    history: list[float] = []
+    for epoch in tqdm(range(epochs), desc="tag mean encoder"):
+        model, opt_state, loss = step(model, opt_state)
+        history.append(float(loss))
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            print(f"  epoch {epoch + 1}/{epochs}  loss={float(loss):.4f}")
+    return model, history
+
+
+def predict_tag_mean_encoder(model: TagMeanEncoder, x: NDArray[np.floating]) -> np.ndarray:
+    pred = jax.vmap(model)(jnp.asarray(x))
+    return np.asarray(pred, dtype=np.float32)
 
 
 def predict_set_encoder(model: NarrativeSetEncoder, batch) -> dict[str, np.ndarray]:

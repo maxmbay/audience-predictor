@@ -11,6 +11,7 @@ from audience_predictor.pipeline import (
     run_figures,
     run_ingest_moviesum,
     run_ingest_sublens,
+    run_predict,
     run_scaling,
     run_train,
 )
@@ -55,9 +56,16 @@ def main(argv: list[str] | None = None) -> None:
             "dialogue_pma",
             "subtitle",
             "subtitle_mean",
+            "genome_script",
+            "genome_production",
+            "genome_reception",
+            "script_tags",
+            "script_tags_mean",
         ),
         default="genome",
     )
+    predict = sub.add_parser("predict", help="Audience fingerprint from a script or other text")
+    predict.add_argument("--text-file", type=Path, required=True, help="Screenplay, SRT, or prose")
     sub.add_parser("evaluate", help="Summarize trained modalities on the movie-level holdout")
     sub.add_parser("figures", help="Write report figures from trained checkpoints")
     sub.add_parser("scaling", help="Holdout cosine vs number of training titles (genome)")
@@ -75,6 +83,8 @@ def main(argv: list[str] | None = None) -> None:
         print(path)
     elif args.command == "train":
         run_train(config, args.modality)
+    elif args.command == "predict":
+        run_predict(config, args.text_file.read_text(encoding="utf-8", errors="replace"))
     elif args.command == "evaluate":
         run_evaluate(config)
     elif args.command == "figures":

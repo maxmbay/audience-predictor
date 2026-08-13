@@ -30,6 +30,11 @@ def _metrics_block() -> str:
             "dialogue_pma",
             "subtitle",
             "subtitle_mean",
+            "genome_script",
+            "genome_production",
+            "genome_reception",
+            "script_tags",
+            "script_tags_mean",
         ):
             p = output_dir() / name / "metrics.json"
             if p.exists():
@@ -76,6 +81,11 @@ def _findings() -> str:
     dl_p = data.get("dialogue_pma", {}).get("holdout", {})
     sub = data.get("subtitle", {}).get("holdout", {})
     sub_m = data.get("subtitle_mean", {}).get("holdout", {})
+    gs = data.get("genome_script", {}).get("holdout", {})
+    gp = data.get("genome_production", {}).get("holdout", {})
+    gr = data.get("genome_reception", {}).get("holdout", {})
+    st = data.get("script_tags", {}).get("holdout", {})
+    stm = data.get("script_tags_mean", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -156,6 +166,26 @@ def _findings() -> str:
                 "  Hashed n-grams stay weak even at 6× MovieSum N; frozen BGE on this"
                 " overlap is the next measurement.\n"
             )
+    if gs or gp or gr:
+        gold_note += f"""
+- **Genome honesty split.** Oracle tags only, no genre/year:
+  script-visible {gs.get('cosine_mean', 0):.3f}, production {gp.get('cosine_mean', 0):.3f},
+  reception {gr.get('cosine_mean', 0):.3f}. Full genome is {g.get('cosine_mean', 0):.3f}.
+  The predictive ceiling is the script-visible bar; awards and franchise tags
+  are not on an undeveloped original.
+"""
+    if st or stm:
+        parts = []
+        if st:
+            parts.append(f"ISAB+position {st.get('cosine_mean', 0):.3f} (n={st.get('n', 0)})")
+        if stm:
+            parts.append(f"mean-pool tags {stm.get('cosine_mean', 0):.3f} (n={stm.get('n', 0)})")
+        gold_note += f"""
+- **Script → tags → audience.** Independent script-visible relevances (not a simplex),
+  then the genome_script audience MLP. {"; ".join(parts)}.
+  Predicted tags collapse toward the average profile; the 0.32 oracle ceiling
+  does not transfer yet. `predict --text-file` uses BGE mean-pool for z.
+"""
     if not gold_note:
         gold_note = """
 - **N_screenplay ∩ MovieLens is still 0 in this checkpoint.** Run
@@ -361,8 +391,11 @@ PYTHONPATH=src uv run python -m audience_predictor train --modality metadata
 PYTHONPATH=src uv run python -m audience_predictor train --modality tags
 PYTHONPATH=src uv run python -m audience_predictor train --modality hierarchical
 PYTHONPATH=src uv run python -m audience_predictor train --modality genome_gold
-PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue
-PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_script
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_production
+PYTHONPATH=src uv run python -m audience_predictor train --modality genome_reception
+PYTHONPATH=src uv run python -m audience_predictor train --modality script_tags
+PYTHONPATH=src uv run python -m audience_predictor predict --text-file path/to/script.txt
 PYTHONPATH=src uv run python -m audience_predictor evaluate
 PYTHONPATH=src uv run python -m audience_predictor scaling
 PYTHONPATH=src uv run python -m audience_predictor figures
