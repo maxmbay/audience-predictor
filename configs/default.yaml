@@ -1,0 +1,38 @@
+seed: 0
+
+data:
+  catalog_value_root: null
+  movielens_url: "https://files.grouplens.org/datasets/movielens/ml-25m.zip"
+  min_user_ratings: 20
+  min_movie_ratings: 50
+  hash_dim: 256
+  max_blocks: 32
+  tmdb_overview_limit: null
+
+representation:
+  embedding_dim: 64
+  n_interests: 8
+  n_heads: 4
+  n_inducing: 8
+  hidden: 256
+  model_dim: 64
+
+train:
+  holdout_frac: 0.2
+  min_train_ratings: 200
+  epochs: 60
+  batch_size: 0
+  lr: 0.001
+  weight_decay: 0.0001
+  nll_weight: 0.15
+  aux_weight: 0.25
+  bias_weight: 0.25
+
+eval:
+  n0: 400
+  probes:
+    - "Halloween (1978)"
+    - "Super Mario Bros. (1993)"
+    - "Paths of Glory (1957)"
+    - "Notebook, The (2004)"
+    - "Toy Story (1995)"
