@@ -15,6 +15,7 @@ from audience_predictor.data.bridge import (
 )
 from audience_predictor.data.genome import parse_year
 from audience_predictor.data.moviesum import provenance_path
+from audience_predictor.data.subtitles import provenance_path as sublens_provenance_path
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.paths import reports_dir
 
@@ -33,6 +34,9 @@ def coverage_tables(root=None) -> dict[str, pl.DataFrame | dict]:
     n_screenplay = 0
     n_join = 0
     n_join_ge_1000 = 0
+    n_subtitle = 0
+    n_sub_join = 0
+    n_sub_join_ge_1000 = 0
     if provenance_path().exists():
         gold = pl.read_parquet(provenance_path())
         n_screenplay = gold.height
@@ -41,6 +45,16 @@ def coverage_tables(root=None) -> dict[str, pl.DataFrame | dict]:
         if n_join:
             rows = set(int(r) for r in matched["movie_row"].to_list())
             n_join_ge_1000 = int(
+                movies.filter(pl.col("movie_row").is_in(list(rows)) & (pl.col("n_ratings") >= 1000)).height
+            )
+    if sublens_provenance_path().exists():
+        silver = pl.read_parquet(sublens_provenance_path())
+        n_subtitle = int(silver["imdb_join"].n_unique()) if silver.height else 0
+        matched = silver.filter(pl.col("movie_row").is_not_null())
+        n_sub_join = int(matched["movie_row"].n_unique()) if matched.height else 0
+        if n_sub_join:
+            rows = set(int(r) for r in matched["movie_row"].to_list())
+            n_sub_join_ge_1000 = int(
                 movies.filter(pl.col("movie_row").is_in(list(rows)) & (pl.col("n_ratings") >= 1000)).height
             )
     summary = {
@@ -55,6 +69,9 @@ def coverage_tables(root=None) -> dict[str, pl.DataFrame | dict]:
         "n_screenplay": n_screenplay,
         "n_screenplay_intersect_movielens": n_join,
         "n_screenplay_intersect_ge_1000": n_join_ge_1000,
+        "n_subtitle": n_subtitle,
+        "n_subtitle_intersect_movielens": n_sub_join,
+        "n_subtitle_intersect_ge_1000": n_sub_join_ge_1000,
         "year_min": int(min(y for y in years if y) or 0),
         "year_max": int(max(years)),
         "n_ratings_core": int(ratings.height),
@@ -99,6 +116,9 @@ Join spine: `catalog-value` core universe. Gold screenplay *text* is not in git
 | Genuine screenplays (MovieSum) | {summary['n_screenplay']:,} |
 | Screenplay ∩ MovieLens core | {summary['n_screenplay_intersect_movielens']:,} |
 | Screenplay ∩ ≥1,000 ratings | {summary['n_screenplay_intersect_ge_1000']:,} |
+| Silver subtitles (SubLens-20M) | {summary.get('n_subtitle', 0):,} |
+| Subtitle ∩ MovieLens core | {summary.get('n_subtitle_intersect_movielens', 0):,} |
+| Subtitle ∩ ≥1,000 ratings | {summary.get('n_subtitle_intersect_ge_1000', 0):,} |
 | Core ratings | {summary['n_ratings_core']:,} |
 | Year range | {summary['year_min']}–{summary['year_max']} |
 

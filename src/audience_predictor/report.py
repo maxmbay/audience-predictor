@@ -28,6 +28,8 @@ def _metrics_block() -> str:
             "dialogue_mean",
             "screenplay_pma",
             "dialogue_pma",
+            "subtitle",
+            "subtitle_mean",
         ):
             p = output_dir() / name / "metrics.json"
             if p.exists():
@@ -72,6 +74,8 @@ def _findings() -> str:
     dm = data.get("dialogue_mean", {}).get("holdout", {})
     sp_p = data.get("screenplay_pma", {}).get("holdout", {})
     dl_p = data.get("dialogue_pma", {}).get("holdout", {})
+    sub = data.get("subtitle", {}).get("holdout", {})
+    sub_m = data.get("subtitle_mean", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -132,6 +136,16 @@ def _findings() -> str:
   Attention pooling still sits well below masked-average MLP; induced attention
   was not the only thing scrambling frozen geometry. Mean-pool remains the
   narrative baseline.
+"""
+    if sub or sub_m:
+        s_cos = sub.get("cosine_mean", 0) if sub else 0
+        sm_cos = sub_m.get("cosine_mean", 0) if sub_m else 0
+        n_sub = (sub_m or sub).get("n", 0)
+        gold_note += f"""
+- **H3 silver subtitles.** SubLens-20M dialogue on the MovieLens overlap
+  (holdout n={n_sub}): hashed mean-pool {s_cos:.3f}, BGE mean-pool {sm_cos:.3f}.
+  `document_type=subtitle` is never collapsed with screenplay. This tests whether
+  more spoken dialogue, not more scripts, closes the gap to genome.
 """
     if not gold_note:
         gold_note = """

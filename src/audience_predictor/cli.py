@@ -10,6 +10,7 @@ from audience_predictor.pipeline import (
     run_evaluate,
     run_figures,
     run_ingest_moviesum,
+    run_ingest_sublens,
     run_scaling,
     run_train,
 )
@@ -30,6 +31,11 @@ def main(argv: list[str] | None = None) -> None:
         help="Parse MovieSum XML, join IMDb ids, write hashed or frozen-encoder blocks",
     )
     ingest.add_argument("--encoder", choices=("hash", "bge"), default="hash")
+    ingest_sub = sub.add_parser(
+        "ingest-sublens",
+        help="Parse SubLens-20M SRT files, join IMDb ids, write hashed or frozen-encoder blocks",
+    )
+    ingest_sub.add_argument("--encoder", choices=("hash", "bge"), default="hash")
     train = sub.add_parser("train", help="Train an Equinox encoder into collaborative z-space")
     train.add_argument(
         "--modality",
@@ -47,6 +53,8 @@ def main(argv: list[str] | None = None) -> None:
             "dialogue_mean",
             "screenplay_pma",
             "dialogue_pma",
+            "subtitle",
+            "subtitle_mean",
         ),
         default="genome",
     )
@@ -61,6 +69,9 @@ def main(argv: list[str] | None = None) -> None:
         print(path)
     elif args.command == "ingest-moviesum":
         path = run_ingest_moviesum(config, encoder=args.encoder)
+        print(path)
+    elif args.command == "ingest-sublens":
+        path = run_ingest_sublens(config, encoder=args.encoder)
         print(path)
     elif args.command == "train":
         run_train(config, args.modality)

@@ -9,3 +9,4 @@ def test_cli_help(capsys):
     out = capsys.readouterr().out
     assert "coverage" in out
     assert "ingest-moviesum" in out
+    assert "ingest-sublens" in out

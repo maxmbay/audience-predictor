@@ -27,6 +27,7 @@ cp .env.example .env   # set CATALOG_VALUE_ROOT if the sibling path is nonstanda
 PYTHONPATH=src uv run pytest
 PYTHONPATH=src uv run python -m audience_predictor coverage
 PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum --encoder bge
+PYTHONPATH=src uv run python -m audience_predictor ingest-sublens --encoder hash
 PYTHONPATH=src uv run python -m audience_predictor train --modality genome
 PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay_bge
 PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue_bge

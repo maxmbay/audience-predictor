@@ -31,6 +31,11 @@ from audience_predictor.data.narrative import (
     pooled_block_features,
     tag_blocks_for_movies,
 )
+from audience_predictor.data.subtitles import (
+    ingest_sublens,
+    load_sublens_blocks,
+    silver_movie_rows,
+)
 from audience_predictor.data.splits import movie_split
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
@@ -103,6 +108,16 @@ def run_ingest_moviesum(config: Config, encoder: str = "hash") -> Path:
     return write_coverage_report(config.data.catalog_value_root)
 
 
+def run_ingest_sublens(config: Config, encoder: str = "hash") -> Path:
+    ingest_sublens(
+        hash_dim=config.data.hash_dim,
+        max_blocks=config.data.max_blocks,
+        catalog_root=config.data.catalog_value_root,
+        encoder=encoder,
+    )
+    return write_coverage_report(config.data.catalog_value_root)
+
+
 MODALITIES = (
     "metadata",
     "genome",
@@ -117,6 +132,8 @@ MODALITIES = (
     "dialogue_mean",
     "screenplay_pma",
     "dialogue_pma",
+    "subtitle",
+    "subtitle_mean",
 )
 
 
@@ -264,6 +281,20 @@ def run_train(config: Config, modality: str) -> Path:
         )
         pred = predict_mlp(model, x)
         save_checkpoint(out / "model.eqx", model)
+    elif modality in {"subtitle", "subtitle_mean"}:
+        encoder = "bge" if modality == "subtitle_mean" else "hash"
+        batch = load_sublens_blocks(encoder)
+        silver = silver_movie_rows()
+        used_train, used_hold = _gold_split(split, silver, batch.mask)
+        x = pooled_block_features(batch, include_action=False)
+        model, history = train_mlp(
+            x, z, bias, aux, used_train,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+            nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+            seed=config.seed,
+        )
+        pred = predict_mlp(model, x)
+        save_checkpoint(out / "model.eqx", model)
     else:
         raise ValueError(f"unknown modality {modality}")
 
@@ -332,6 +363,8 @@ def run_figures(config: Config) -> Path:
         ("screenplay_mean", "BGE screenplay mean-pool"),
         ("dialogue_pma", "BGE dialogue PMA"),
         ("screenplay_pma", "BGE screenplay PMA"),
+        ("subtitle", "hashed subtitles"),
+        ("subtitle_mean", "BGE subtitle mean-pool"),
     ):
         pred_path = output_dir() / modality / "predictions.npz"
         if not pred_path.exists():
@@ -391,12 +424,14 @@ def run_figures(config: Config) -> Path:
     tags = movie_tag_text(load_tags(root))
     n_tags = int(movies.join(tags, on="movieId", how="left")["n_tags"].fill_null(0).gt(0).sum())
     n_gold = int(gold_movie_rows().size) if provenance_path().exists() else 0
+    n_silver = int(silver_movie_rows().size)
     plot_coverage_funnel(
         [
             ("MovieLens core", int(movies.height)),
             ("IMDb-linked", int(movies["imdbId"].is_not_null().sum())),
             ("≥1,000 ratings", int((n_ratings >= 1000).sum())),
             ("user tags (silver text)", n_tags),
+            ("silver subtitles ∩ core", n_silver),
             ("gold screenplays ∩ core", n_gold),
         ],
         figs / "coverage_funnel.png",
