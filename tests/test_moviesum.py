@@ -46,7 +46,7 @@ def test_ingest_writes_identifiers_not_script_text(tmp_path, monkeypatch):
     monkeypatch.setattr(ms, "moviesum_raw_dir", lambda: raw)
     monkeypatch.setattr(ms, "gold_processed_dir", lambda: gold)
     monkeypatch.setattr(ms, "provenance_path", lambda: gold / "moviesum_provenance.parquet")
-    monkeypatch.setattr(ms, "blocks_path", lambda: gold / "moviesum_blocks.npz")
+    monkeypatch.setattr(ms, "blocks_path", lambda encoder="hash": gold / "moviesum_blocks.npz")
 
     frame = ms.ingest_moviesum(hash_dim=32, max_blocks=8)
     assert "script" not in frame.columns

@@ -25,11 +25,27 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--config", type=Path, default=None)
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("coverage", help="Write the MovieLens join coverage report")
-    sub.add_parser("ingest-moviesum", help="Parse MovieSum XML, join IMDb ids, write hashed blocks")
+    ingest = sub.add_parser(
+        "ingest-moviesum",
+        help="Parse MovieSum XML, join IMDb ids, write hashed or frozen-encoder blocks",
+    )
+    ingest.add_argument("--encoder", choices=("hash", "bge"), default="hash")
     train = sub.add_parser("train", help="Train an Equinox encoder into collaborative z-space")
     train.add_argument(
         "--modality",
-        choices=("metadata", "genome", "tags", "hierarchical", "genome_gold", "screenplay", "dialogue"),
+        choices=(
+            "metadata",
+            "genome",
+            "tags",
+            "hierarchical",
+            "genome_gold",
+            "screenplay",
+            "dialogue",
+            "screenplay_bge",
+            "dialogue_bge",
+            "screenplay_mean",
+            "dialogue_mean",
+        ),
         default="genome",
     )
     sub.add_parser("evaluate", help="Summarize trained modalities on the movie-level holdout")
@@ -42,7 +58,7 @@ def main(argv: list[str] | None = None) -> None:
         path = run_coverage(config)
         print(path)
     elif args.command == "ingest-moviesum":
-        path = run_ingest_moviesum(config)
+        path = run_ingest_moviesum(config, encoder=args.encoder)
         print(path)
     elif args.command == "train":
         run_train(config, args.modality)

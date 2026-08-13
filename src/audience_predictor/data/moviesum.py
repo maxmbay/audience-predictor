@@ -10,14 +10,19 @@ import polars as pl
 from tqdm import tqdm
 
 from audience_predictor.data.bridge import catalog_value_root, movies_path
+from audience_predictor.data.encoder import HASH_ENCODER, BlockEncoder, get_encoder
 from audience_predictor.data.entity_resolution import movies_lookup
 from audience_predictor.data.narrative import (
     N_STRUCT,
     NarrativeBatch,
     _pad_blocks,
-    blocks_from_parsed,
+    scene_block_texts,
 )
-from audience_predictor.data.screenplay_parser import parse_moviesum_xml
+from audience_predictor.data.screenplay_parser import (
+    STRUCT_KEYS,
+    parse_moviesum_xml,
+    structural_features,
+)
 from audience_predictor.paths import data_dir
 
 SPLITS = ("train", "val", "test")
@@ -39,8 +44,10 @@ def provenance_path() -> Path:
     return gold_processed_dir() / "moviesum_provenance.parquet"
 
 
-def blocks_path() -> Path:
-    return gold_processed_dir() / "moviesum_blocks.npz"
+def blocks_path(encoder: str = HASH_ENCODER) -> Path:
+    if not encoder or encoder == HASH_ENCODER:
+        return gold_processed_dir() / "moviesum_blocks.npz"
+    return gold_processed_dir() / f"moviesum_blocks_{encoder}.npz"
 
 
 def iter_moviesum_records(raw_dir: Path | None = None):
@@ -67,11 +74,13 @@ def ingest_moviesum(
     hash_dim: int,
     max_blocks: int,
     catalog_root: str | Path | None = None,
+    encoder: str | BlockEncoder = HASH_ENCODER,
 ) -> pl.DataFrame:
-    """Parse XML, join IMDb ids to MovieLens, write provenance + hashed blocks.
+    """Parse XML, join IMDb ids to MovieLens, write provenance + block features.
 
     Does not write screenplay text.
     """
+    backend = encoder if hasattr(encoder, "embed_many") else get_encoder(str(encoder), hash_dim)
     cv = catalog_value_root(catalog_root)
     movies = movies_lookup(pl.read_parquet(movies_path(cv)))
     n_movies = int(movies["movie_row"].max()) + 1
@@ -79,13 +88,9 @@ def ingest_moviesum(
     id_lookup = dict(zip(movies["imdb_join"].to_list(), movies["movieId"].to_list()))
 
     records = []
-    dialogue_blocks: list[np.ndarray] = [np.zeros((0, hash_dim), np.float32)] * n_movies
-    action_blocks: list[np.ndarray] = [np.zeros((0, hash_dim), np.float32)] * n_movies
-    structs = np.zeros((n_movies, N_STRUCT), dtype=np.float32)
-    types = np.array(["unknown"] * n_movies, dtype=object)
-    n_scenes_stored = np.zeros(n_movies, dtype=np.int32)
+    pending: dict[int, tuple[list[str], list[str], np.ndarray, int]] = {}
 
-    for split, row in tqdm(iter_moviesum_records(), total=2200, desc="moviesum"):
+    for split, row in tqdm(iter_moviesum_records(), total=2200, desc="moviesum parse"):
         imdb_id = str(row.get("imdb_id") or "")
         key = _imdb_join(imdb_id)
         movie_row = lookup.get(key)
@@ -111,39 +116,62 @@ def ingest_moviesum(
         if movie_row is None or not parse_ok:
             continue
         idx = int(movie_row)
-        if types[idx] == "screenplay" and int(parsed.n_scenes) <= int(n_scenes_stored[idx]):
+        if idx in pending and int(parsed.n_scenes) <= pending[idx][3]:
             continue
-        d, a, mask, struct = blocks_from_parsed(parsed, hash_dim, max_blocks)
-        k = int(mask[0].sum())
-        dialogue_blocks[idx] = d[0, :k]
-        action_blocks[idx] = a[0, :k]
-        structs[idx] = struct[0]
-        types[idx] = "screenplay"
-        n_scenes_stored[idx] = int(parsed.n_scenes)
+        dialogue, action = scene_block_texts(parsed, max_blocks)
+        stats = structural_features(parsed)
+        struct = np.array([stats[k] for k in STRUCT_KEYS], dtype=np.float32)
+        pending[idx] = (dialogue, action, struct, int(parsed.n_scenes))
 
     frame = pl.DataFrame(records)
     dest = provenance_path()
     dest.parent.mkdir(parents=True, exist_ok=True)
     frame.write_parquet(dest)
 
-    dialogue, mask = _pad_blocks(dialogue_blocks, max_blocks, hash_dim)
-    action, _ = _pad_blocks(action_blocks, max_blocks, hash_dim)
+    dialogue_blocks: list[np.ndarray] = [np.zeros((0, backend.dim), np.float32)] * n_movies
+    action_blocks: list[np.ndarray] = [np.zeros((0, backend.dim), np.float32)] * n_movies
+    structs = np.zeros((n_movies, N_STRUCT), dtype=np.float32)
+    types = np.array(["unknown"] * n_movies, dtype=object)
+
+    d_texts: list[str] = []
+    a_texts: list[str] = []
+    owners: list[tuple[int, int, int]] = []
+    for idx, (dialogue, action, struct, _n) in pending.items():
+        start = len(d_texts)
+        d_texts.extend(dialogue)
+        a_texts.extend(action)
+        owners.append((idx, start, len(dialogue)))
+        structs[idx] = struct
+        types[idx] = "screenplay"
+
+    print(f"encoding {len(d_texts):,} dialogue + {len(a_texts):,} action blocks with {backend.name}")
+    d_vecs = backend.embed_many(d_texts) if d_texts else np.zeros((0, backend.dim), np.float32)
+    a_vecs = backend.embed_many(a_texts) if a_texts else np.zeros((0, backend.dim), np.float32)
+    for idx, start, n in owners:
+        dialogue_blocks[idx] = d_vecs[start : start + n]
+        action_blocks[idx] = a_vecs[start : start + n]
+
+    packed_d, mask = _pad_blocks(dialogue_blocks, max_blocks, backend.dim)
+    packed_a, _ = _pad_blocks(action_blocks, max_blocks, backend.dim)
+    out_blocks = blocks_path(backend.name)
     np.savez_compressed(
-        blocks_path(),
-        dialogue=dialogue,
-        action=action,
+        out_blocks,
+        dialogue=packed_d,
+        action=packed_a,
         mask=mask,
         structure=structs,
         document_type=types.astype(str),
+        encoder=np.asarray(backend.name),
+        dim=np.asarray(backend.dim),
     )
     n_join = int(frame["movie_row"].is_not_null().sum())
     print(f"MovieSum {frame.height} screenplays  joined to MovieLens core {n_join}")
-    print(f"Wrote {dest} and {blocks_path()} (no script text)")
+    print(f"Wrote {dest} and {out_blocks} (no script text, encoder={backend.name})")
     return frame
 
 
-def load_moviesum_blocks() -> NarrativeBatch:
-    payload = np.load(blocks_path(), allow_pickle=True)
+def load_moviesum_blocks(encoder: str = HASH_ENCODER) -> NarrativeBatch:
+    payload = np.load(blocks_path(encoder), allow_pickle=True)
     return NarrativeBatch(
         dialogue=payload["dialogue"],
         action=payload["action"],
@@ -156,7 +184,6 @@ def load_moviesum_blocks() -> NarrativeBatch:
 def gold_movie_rows() -> np.ndarray:
     frame = pl.read_parquet(provenance_path())
     rows = (
-        frame.filter(pl.col("movie_row").is_not_null() & pl.col("parse_ok"))["movie_row"]
-        .to_numpy()
+        frame.filter(pl.col("movie_row").is_not_null() & pl.col("parse_ok"))["movie_row"].to_numpy()
     )
     return np.unique(rows.astype(np.int64))

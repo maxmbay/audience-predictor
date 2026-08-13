@@ -14,7 +14,19 @@ def _metrics_block() -> str:
     path = output_dir() / "ablation.json"
     if not path.exists():
         parts = []
-        for name in ("metadata", "genome", "tags", "hierarchical", "genome_gold", "screenplay", "dialogue"):
+        for name in (
+            "metadata",
+            "genome",
+            "tags",
+            "hierarchical",
+            "genome_gold",
+            "screenplay",
+            "dialogue",
+            "screenplay_bge",
+            "dialogue_bge",
+            "screenplay_mean",
+            "dialogue_mean",
+        ):
             p = output_dir() / name / "metrics.json"
             if p.exists():
                 parts.append((name, json.loads(p.read_text())))
@@ -52,6 +64,9 @@ def _findings() -> str:
     dl = data.get("dialogue", {}).get("holdout", {})
     gg = data.get("genome_gold", {}).get("holdout", {})
     g_gold = data.get("genome", {}).get("gold_holdout", {})
+    sp_b = data.get("screenplay_bge", {}).get("holdout", {})
+    dl_b = data.get("dialogue_bge", {}).get("holdout", {})
+    sm = data.get("screenplay_mean", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -70,13 +85,24 @@ def _findings() -> str:
                 "Hashed n-grams of scene text do not recover z_i; a pretrained language encoder is the next lever, not more MovieSum scripts."
             )
         extra_txt = " ".join(extra)
-        gold_note = f"""
-- **H2 ({h2}).** On MovieSum ∩ holdout (n={sp.get('n', 0)}), full screenplay
+        gold_note += f"""
+- **H2 hashed ({h2}).** On MovieSum ∩ holdout (n={sp.get('n', 0)}), full screenplay
   cosine is {sp_cos:.3f} vs dialogue-only {dl_cos:.3f} (Δ={delta:+.3f}).
   {extra_txt} Wikipedia summaries from MovieSum are **not** used — they leak
   post-release reception.
 """
-    else:
+    if sp_b:
+        b_sp = sp_b.get("cosine_mean", 0)
+        b_dl = dl_b.get("cosine_mean", 0) if dl_b else 0
+        b_delta = b_sp - b_dl
+        h2b = "supported" if b_delta > 0.01 else ("not supported" if b_delta < -0.01 else "too close to call")
+        mean_txt = f" Mean-pool screenplay is {sm.get('cosine_mean', 0):.3f}." if sm else ""
+        gold_note += f"""
+- **H2 frozen BGE ({h2b}).** Same holdout, ONNX BGE-small scene embeddings:
+  screenplay {b_sp:.3f} vs dialogue {b_dl:.3f} (Δ={b_delta:+.3f}).{mean_txt}
+  Equinox still trains the set aggregator; the language encoder is frozen.
+"""
+    if not gold_note:
         gold_note = """
 - **N_screenplay ∩ MovieLens is still 0 in this checkpoint.** Run
   `ingest-moviesum` then `train --modality screenplay` / `dialogue`.

@@ -8,6 +8,7 @@ import numpy as np
 import polars as pl
 from numpy.typing import NDArray
 
+from audience_predictor.data.encoder import BlockEncoder, HashEncoder
 from audience_predictor.data.hasher import hash_embed, hash_embed_many
 from audience_predictor.data.screenplay_parser import (
     STRUCT_KEYS,
@@ -44,9 +45,11 @@ def _pad_blocks(blocks: list[np.ndarray], max_blocks: int, dim: int) -> tuple[Fl
     return out, mask
 
 
-def blocks_from_screenplay(text: str, hash_dim: int, max_blocks: int) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray]:
+def blocks_from_screenplay(
+    text: str, hash_dim: int, max_blocks: int, encoder: BlockEncoder | None = None
+) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray]:
     parsed = parse_screenplay(text)
-    return blocks_from_parsed(parsed, hash_dim, max_blocks)
+    return blocks_from_parsed(parsed, hash_dim, max_blocks, encoder=encoder)
 
 
 def select_block_indices(n: int, max_blocks: int) -> np.ndarray:
@@ -67,21 +70,28 @@ def _clip_text(text: str) -> str:
     return body[:HASH_CLIP_CHARS]
 
 
-def blocks_from_parsed(
-    parsed: ParsedScreenplay, hash_dim: int, max_blocks: int
-) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray]:
+def scene_block_texts(parsed: ParsedScreenplay, max_blocks: int) -> tuple[list[str], list[str]]:
     scenes = parsed.scenes
     if not scenes:
-        dialogue = [""]
-        action = [""]
-    else:
-        keep = select_block_indices(len(scenes), max_blocks)
-        dialogue = [_clip_text(scenes[i].dialogue_text) for i in keep]
-        action = [_clip_text(f"{scenes[i].heading} {scenes[i].action_text}") for i in keep]
-    d = hash_embed_many(dialogue, hash_dim)
-    a = hash_embed_many(action, hash_dim)
-    packed_d, mask = _pad_blocks([d], max_blocks, hash_dim)
-    packed_a, _ = _pad_blocks([a], max_blocks, hash_dim)
+        return [""], [""]
+    keep = select_block_indices(len(scenes), max_blocks)
+    dialogue = [_clip_text(scenes[i].dialogue_text) for i in keep]
+    action = [_clip_text(f"{scenes[i].heading} {scenes[i].action_text}") for i in keep]
+    return dialogue, action
+
+
+def blocks_from_parsed(
+    parsed: ParsedScreenplay,
+    hash_dim: int,
+    max_blocks: int,
+    encoder: BlockEncoder | None = None,
+) -> tuple[FloatArray, FloatArray, BoolArray, FloatArray]:
+    backend = encoder or HashEncoder(dim=hash_dim)
+    dialogue, action = scene_block_texts(parsed, max_blocks)
+    d = backend.embed_many(dialogue)
+    a = backend.embed_many(action)
+    packed_d, mask = _pad_blocks([d], max_blocks, backend.dim)
+    packed_a, _ = _pad_blocks([a], max_blocks, backend.dim)
     stats = structural_features(parsed)
     struct = np.array([[stats[k] for k in STRUCT_KEYS]], dtype=np.float32)
     return packed_d, packed_a, mask, struct
@@ -147,6 +157,17 @@ def tag_blocks_for_movies(
         structure=structs,
         document_type=types,
     )
+
+
+def pooled_block_features(batch: NarrativeBatch, *, include_action: bool) -> FloatArray:
+    """Masked mean of scene embeddings, optionally concatenated with action + structure."""
+    weights = batch.mask.astype(np.float32)[..., None]
+    denom = np.clip(weights.sum(axis=1), 1.0, None)
+    dialogue = (batch.dialogue * weights).sum(axis=1) / denom
+    if not include_action:
+        return dialogue
+    action = (batch.action * weights).sum(axis=1) / denom
+    return np.concatenate([dialogue, action, batch.structure], axis=1)
 
 
 def bag_features(texts: list[str], hash_dim: int) -> FloatArray:

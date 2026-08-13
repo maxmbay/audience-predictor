@@ -26,7 +26,11 @@ from audience_predictor.data.moviesum import (
     load_moviesum_blocks,
     provenance_path,
 )
-from audience_predictor.data.narrative import NarrativeBatch, tag_blocks_for_movies
+from audience_predictor.data.narrative import (
+    NarrativeBatch,
+    pooled_block_features,
+    tag_blocks_for_movies,
+)
 from audience_predictor.data.splits import movie_split
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
@@ -89,11 +93,12 @@ def run_coverage(config: Config) -> Path:
     return write_coverage_report(config.data.catalog_value_root)
 
 
-def run_ingest_moviesum(config: Config) -> Path:
+def run_ingest_moviesum(config: Config, encoder: str = "hash") -> Path:
     ingest_moviesum(
         hash_dim=config.data.hash_dim,
         max_blocks=config.data.max_blocks,
         catalog_root=config.data.catalog_value_root,
+        encoder=encoder,
     )
     return write_coverage_report(config.data.catalog_value_root)
 
@@ -106,6 +111,10 @@ MODALITIES = (
     "genome_gold",
     "screenplay",
     "dialogue",
+    "screenplay_bge",
+    "dialogue_bge",
+    "screenplay_mean",
+    "dialogue_mean",
 )
 
 
@@ -205,12 +214,14 @@ def run_train(config: Config, modality: str) -> Path:
         pred = predict_set_encoder(model, batch)
         save_checkpoint(out / "model.eqx", model)
         np.savez_compressed(out / "residual.npz", z_dialogue=pred["z_dialogue"], delta=pred["delta"])
-    elif modality in {"screenplay", "dialogue"}:
-        batch = load_moviesum_blocks()
+    elif modality in {"screenplay", "dialogue", "screenplay_bge", "dialogue_bge"}:
+        encoder = "bge" if modality.endswith("_bge") else "hash"
+        batch = load_moviesum_blocks(encoder)
         gold = gold_movie_rows()
         used_train, used_hold = _gold_split(split, gold, batch.mask)
-        action = batch.action if modality == "screenplay" else np.zeros_like(batch.action)
-        structure = batch.structure if modality == "screenplay" else np.zeros_like(batch.structure)
+        full = modality.startswith("screenplay")
+        action = batch.action if full else np.zeros_like(batch.action)
+        structure = batch.structure if full else np.zeros_like(batch.structure)
         model, history = train_set_encoder(
             batch.dialogue, action, batch.mask, structure,
             z, bias, aux, used_train,
@@ -229,6 +240,19 @@ def run_train(config: Config, modality: str) -> Path:
         pred = predict_set_encoder(model, eval_batch)
         save_checkpoint(out / "model.eqx", model)
         np.savez_compressed(out / "residual.npz", z_dialogue=pred["z_dialogue"], delta=pred["delta"])
+    elif modality in {"screenplay_mean", "dialogue_mean"}:
+        batch = load_moviesum_blocks("bge")
+        gold = gold_movie_rows()
+        used_train, used_hold = _gold_split(split, gold, batch.mask)
+        x = pooled_block_features(batch, include_action=modality.startswith("screenplay"))
+        model, history = train_mlp(
+            x, z, bias, aux, used_train,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr, weight_decay=cfg.weight_decay,
+            nll_weight=cfg.nll_weight, aux_weight=cfg.aux_weight, bias_weight=cfg.bias_weight,
+            seed=config.seed,
+        )
+        pred = predict_mlp(model, x)
+        save_checkpoint(out / "model.eqx", model)
     else:
         raise ValueError(f"unknown modality {modality}")
 
@@ -289,8 +313,12 @@ def run_figures(config: Config) -> Path:
         ("genome_gold", "genome on gold titles only"),
         ("tags", "user tags (hashed bag)"),
         ("hierarchical", "tag-set transformer"),
-        ("dialogue", "MovieSum dialogue"),
-        ("screenplay", "MovieSum screenplay"),
+        ("dialogue", "hashed dialogue"),
+        ("screenplay", "hashed screenplay"),
+        ("dialogue_bge", "BGE dialogue"),
+        ("screenplay_bge", "BGE screenplay"),
+        ("dialogue_mean", "BGE dialogue mean-pool"),
+        ("screenplay_mean", "BGE screenplay mean-pool"),
     ):
         pred_path = output_dir() / modality / "predictions.npz"
         if not pred_path.exists():
@@ -361,8 +389,11 @@ def run_figures(config: Config) -> Path:
         figs / "coverage_funnel.png",
     )
 
-    residual_path = output_dir() / "screenplay" / "residual.npz"
-    screen_pred = output_dir() / "screenplay" / "predictions.npz"
+    residual_path = output_dir() / "screenplay_bge" / "residual.npz"
+    screen_pred = output_dir() / "screenplay_bge" / "predictions.npz"
+    if not residual_path.exists():
+        residual_path = output_dir() / "screenplay" / "residual.npz"
+        screen_pred = output_dir() / "screenplay" / "predictions.npz"
     if residual_path.exists() and screen_pred.exists():
         residual = np.load(residual_path)
         spred = np.load(screen_pred)

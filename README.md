@@ -16,18 +16,20 @@ Narrative blocks  →  Equinox set encoder  →  p(z_i | text)
 
 ## Stack
 
-JAX, Equinox, Optax, Polars. PyTorch stays in `catalog-value`; this repo does not depend on it.
+JAX, Equinox, Optax, Polars. PyTorch stays in `catalog-value`. Frozen scene
+embeddings use ONNX BGE-small via `fastembed` (`uv sync --extra encoder`).
 
 ## Quick start
 
 ```bash
-uv sync --dev
+uv sync --dev --extra encoder
 cp .env.example .env   # set CATALOG_VALUE_ROOT if the sibling path is nonstandard
 PYTHONPATH=src uv run pytest
 PYTHONPATH=src uv run python -m audience_predictor coverage
-PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum
+PYTHONPATH=src uv run python -m audience_predictor ingest-moviesum --encoder bge
 PYTHONPATH=src uv run python -m audience_predictor train --modality genome
-PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay
+PYTHONPATH=src uv run python -m audience_predictor train --modality screenplay_bge
+PYTHONPATH=src uv run python -m audience_predictor train --modality dialogue_bge
 PYTHONPATH=src uv run python -m audience_predictor evaluate
 PYTHONPATH=src uv run python -m audience_predictor figures
 PYTHONPATH=src uv run python -m audience_predictor report

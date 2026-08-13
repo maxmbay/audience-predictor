@@ -19,6 +19,11 @@ dependencies = [
     "tqdm>=4.66",
 ]
 
+[project.optional-dependencies]
+encoder = [
+    "fastembed>=0.4",
+]
+
 [project.scripts]
 audience-predictor = "audience_predictor.cli:main"
 
