@@ -10,6 +10,7 @@ from audience_predictor.pipeline import (
     run_evaluate,
     run_figures,
     run_ingest_moviesum,
+    run_ingest_rt,
     run_ingest_sublens,
     run_model_card,
     run_predict,
@@ -39,6 +40,10 @@ def main(argv: list[str] | None = None) -> None:
         help="Parse SubLens-20M SRT files, join IMDb ids, write hashed or frozen-encoder blocks",
     )
     ingest_sub.add_argument("--encoder", choices=("hash", "bge"), default="hash")
+    sub.add_parser(
+        "ingest-rt",
+        help="Join GroupLens hetrec Rotten Tomatoes critic/audience scores onto MovieLens",
+    )
     train = sub.add_parser("train", help="Train an Equinox encoder into collaborative z-space")
     train.add_argument(
         "--modality",
@@ -63,6 +68,7 @@ def main(argv: list[str] | None = None) -> None:
             "genome_reception",
             "script_tags",
             "script_tags_mean",
+            "rt_scores",
         ),
         default="genome",
     )
@@ -86,6 +92,8 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "ingest-sublens":
         path = run_ingest_sublens(config, encoder=args.encoder)
         print(path)
+    elif args.command == "ingest-rt":
+        print(run_ingest_rt(config))
     elif args.command == "train":
         run_train(config, args.modality)
     elif args.command == "predict":

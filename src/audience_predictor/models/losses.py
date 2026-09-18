@@ -10,6 +10,13 @@ def mse(pred: jax.Array, target: jax.Array) -> jax.Array:
     return jnp.mean((pred - target) ** 2)
 
 
+def masked_mse(pred: jax.Array, target: jax.Array, mask: jax.Array) -> jax.Array:
+    """MSE that ignores missing labels. mask is 0/1 with the same shape as pred."""
+    weights = mask.astype(pred.dtype)
+    denom = jnp.clip(jnp.sum(weights), 1.0)
+    return jnp.sum(weights * (pred - target) ** 2) / denom
+
+
 def bce_soft(pred: jax.Array, target: jax.Array) -> jax.Array:
     """Binary cross-entropy with soft 0–1 labels (genome relevances)."""
     p = jnp.clip(pred, 1e-6, 1.0 - 1e-6)

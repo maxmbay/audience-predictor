@@ -53,6 +53,21 @@ def format_predict_card(result: dict) -> str:
         f"mean rating  {pol['mean_rating']:.2f}",
         f"P(love)      {pol['p_love']:.2f}",
         f"P(hate)      {pol['p_hate']:.2f}",
+    ]
+    rt = result.get("rt")
+    if isinstance(rt, dict) and rt.get("critics") is not None:
+        critics = float(rt["critics"])
+        audience = float(rt.get("audience") if rt.get("audience") is not None else critics)
+        gap = audience - critics
+        lean = "crowd-pleaser" if gap >= 8 else ("critics' movie" if gap <= -8 else "the two crowds agree")
+        lines += [
+            "",
+            "estimated Rotten Tomatoes  ·  if this were released",
+            f"  critics    {critics:3.0f}",
+            f"  audience   {audience:3.0f}",
+            f"  gap        {gap:+.0f}   {lean}",
+        ]
+    lines += [
         "",
         "comps among well-rated catalog titles",
     ]

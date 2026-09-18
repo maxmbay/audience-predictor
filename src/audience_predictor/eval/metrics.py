@@ -50,6 +50,36 @@ def recovery_metrics(
     return cleaned
 
 
+def score_metrics(
+    pred: NDArray[np.floating],
+    true: NDArray[np.floating],
+    mask: NDArray[np.bool_],
+) -> dict[str, float]:
+    """Spearman / MAE for RT critics, audience, and the audience−critics gap."""
+    pred = np.asarray(pred)
+    true = np.asarray(true)
+    mask = np.asarray(mask, dtype=bool)
+    out: dict[str, float] = {"n": int(mask.any(axis=1).sum())}
+    for i, name in enumerate(("critics", "audience")):
+        keep = mask[:, i]
+        out[f"n_{name}"] = float(int(keep.sum()))
+        if int(keep.sum()) < 8:
+            out[f"spearman_{name}"] = 0.0
+            out[f"mae_{name}"] = 0.0
+            continue
+        out[f"spearman_{name}"] = _spearman(pred[keep, i], true[keep, i])
+        out[f"mae_{name}"] = float(np.mean(np.abs(pred[keep, i] - true[keep, i])))
+    both = mask[:, 0] & mask[:, 1]
+    out["n_gap"] = float(int(both.sum()))
+    if int(both.sum()) >= 8:
+        out["spearman_gap"] = _spearman(pred[both, 1] - pred[both, 0], true[both, 1] - true[both, 0])
+    else:
+        out["spearman_gap"] = 0.0
+    cleaned = {k: _finite(v) for k, v in out.items() if k != "n"}
+    cleaned["n"] = int(out["n"])
+    return cleaned
+
+
 def _spearman(a: NDArray[np.floating], b: NDArray[np.floating]) -> float:
     stat = spearmanr(a, b).statistic
     return _finite(stat)

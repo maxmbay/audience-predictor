@@ -10,6 +10,7 @@ def test_cli_help(capsys):
     assert "coverage" in out
     assert "ingest-moviesum" in out
     assert "ingest-sublens" in out
+    assert "ingest-rt" in out
     assert "predict" in out
     assert "model-card" in out
     assert "probes" in out

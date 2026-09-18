@@ -253,5 +253,31 @@ PYTHONPATH=src uv run python -m audience_predictor probes
 PYTHONPATH=src uv run python -m audience_predictor predict --text-file path/to/script.txt
 ```
 
+## Rotten Tomatoes estimates
+
+A second head, `rt_scores`, maps the same pooled BGE vector to an estimated
+Tomatometer and Audience Score. Labels are the GroupLens hetrec 2011 snapshot
+joined on IMDb id — scores of films that already existed, through about 2011.
+That is the reception clock. We still print them because people already speak
+that language.
+
+```bash
+PYTHONPATH=src uv run python -m audience_predictor ingest-rt
+PYTHONPATH=src uv run python -m audience_predictor train --modality rt_scores
+```
+
+Holdout on SubLens titles that have a hetrec score (n=1,100):
+
+| Head | Spearman | MAE (0–1) |
+|---|---:|---:|
+| Critics (Tomatometer) | **0.48** | 0.22 |
+| Audience (Popcornmeter) | **0.33** | 0.22 |
+| Gap (audience − critics) | **0.32** | — |
+
+The guess card then adds critics / audience / the gap (crowd-pleaser vs
+critics' movie). Comps stay the product. Do not optimize this head at the
+expense of neighborhood recall. These scores are a **reception estimate**,
+same clock as awards tags — useful language, not a greenlight.
+
 Lab log: [issue #1](https://github.com/maxmbay/audience-predictor/issues/1).
 

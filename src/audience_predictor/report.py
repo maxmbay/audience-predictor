@@ -35,6 +35,7 @@ def _metrics_block() -> str:
             "genome_reception",
             "script_tags",
             "script_tags_mean",
+            "rt_scores",
         ):
             p = output_dir() / name / "metrics.json"
             if p.exists():
@@ -51,6 +52,8 @@ def _metrics_block() -> str:
     for name, block in data.items():
         tr = block["train"]
         ho = block["holdout"]
+        if "cosine_mean" not in tr:
+            continue
         gh = block.get("gold_holdout") or {}
         gold_cos = gh.get("cosine_mean")
         gold_cell = f"{gold_cos:.3f}" if gold_cos is not None else "—"
@@ -110,6 +113,7 @@ def _findings() -> str:
     gr = data.get("genome_reception", {}).get("holdout", {})
     st = data.get("script_tags", {}).get("holdout", {})
     stm = data.get("script_tags_mean", {}).get("holdout", {})
+    rt = data.get("rt_scores", {}).get("holdout", {})
     if not g:
         return ""
     gold_note = ""
@@ -223,6 +227,14 @@ def _findings() -> str:
   {dm.get('neighbor_recall_at_10', 0):.3f} recall
   ({dm.get('spearman_p_love', 0):.2f} love) — routing a screenplay to that
   head is only a win if those comps beat subtitle_mean on the same titles.
+"""
+    if rt and rt.get("spearman_critics") is not None:
+        gold_note += f"""
+- **Rotten Tomatoes estimates (reception, not script-time).** hetrec 2011
+  snapshot. Text → critics Spearman {rt.get('spearman_critics', 0):.2f},
+  audience {rt.get('spearman_audience', 0):.2f}, gap {rt.get('spearman_gap', 0):.2f}
+  (n={int(rt.get('n', 0))}). These numbers describe a released film. Treat them
+  as a translation of the guess card, not a greenlight.
 """
     if not gold_note:
         gold_note = """

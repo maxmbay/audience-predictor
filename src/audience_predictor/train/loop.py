@@ -14,8 +14,9 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 
 from audience_predictor.models.hierarchical import NarrativeSetEncoder
-from audience_predictor.models.losses import bce_soft, gaussian_nll, mse
+from audience_predictor.models.losses import bce_soft, gaussian_nll, masked_mse, mse
 from audience_predictor.models.mlp import AudienceMLP
+from audience_predictor.models.scores import ScoreMLP
 from audience_predictor.models.tag_encoder import ScriptTagEncoder, TagMeanEncoder
 
 
@@ -92,6 +93,51 @@ def predict_mlp(model: AudienceMLP, x: NDArray[np.floating]) -> dict[str, np.nda
         "bias": np.asarray(bias, dtype=np.float64),
         "aux": np.asarray(aux, dtype=np.float64),
     }
+
+
+def train_score_mlp(
+    x: NDArray[np.floating],
+    y: NDArray[np.floating],
+    mask: NDArray[np.bool_],
+    train_idx: NDArray[np.integer],
+    *,
+    hidden: int,
+    epochs: int,
+    lr: float,
+    weight_decay: float,
+    seed: int,
+) -> tuple[ScoreMLP, list[float]]:
+    key = jax.random.key(seed)
+    model = ScoreMLP(in_dim=x.shape[1], hidden=hidden, key=key)
+    optim = _adamw(lr, weight_decay)
+    opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
+    xt = jnp.asarray(x[train_idx])
+    yt = jnp.asarray(y[train_idx])
+    mt = jnp.asarray(mask[train_idx]).astype(jnp.float32)
+
+    @eqx.filter_jit
+    def step(model, opt_state):
+        def loss_fn(model):
+            pred = jax.vmap(model)(xt)
+            return masked_mse(pred, yt, mt)
+
+        loss, grads = eqx.filter_value_and_grad(loss_fn)(model)
+        updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_inexact_array))
+        model = eqx.apply_updates(model, updates)
+        return model, opt_state, loss
+
+    history: list[float] = []
+    for epoch in tqdm(range(epochs), desc="rt score mlp"):
+        model, opt_state, loss = step(model, opt_state)
+        history.append(float(loss))
+        if epoch == 0 or (epoch + 1) % 10 == 0:
+            print(f"  epoch {epoch + 1}/{epochs}  loss={float(loss):.4f}")
+    return model, history
+
+
+def predict_scores(model: ScoreMLP, x: NDArray[np.floating]) -> np.ndarray:
+    pred = jax.vmap(model)(jnp.asarray(x))
+    return np.asarray(pred, dtype=np.float64)
 
 
 def train_set_encoder(

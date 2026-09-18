@@ -42,6 +42,7 @@ from audience_predictor.data.narrative import (
     pooled_block_features,
     tag_blocks_for_movies,
 )
+from audience_predictor.data.rt_scores import ingest_rt_scores, rt_target_matrices
 from audience_predictor.data.splits import movie_split
 from audience_predictor.data.subtitles import (
     ingest_sublens,
@@ -59,17 +60,20 @@ from audience_predictor.eval.comps import (
     product_metrics,
 )
 from audience_predictor.eval.heads import format_predict_card, predict_head_for_document
-from audience_predictor.eval.metrics import cosine, recovery_metrics
+from audience_predictor.eval.metrics import cosine, recovery_metrics, score_metrics
 from audience_predictor.models.mlp import AudienceMLP
+from audience_predictor.models.scores import ScoreMLP
 from audience_predictor.paths import output_dir, reports_dir
 from audience_predictor.train.loop import (
     load_checkpoint,
     predict_mlp,
+    predict_scores,
     predict_set_encoder,
     predict_tag_encoder,
     predict_tag_mean_encoder,
     save_checkpoint,
     train_mlp,
+    train_score_mlp,
     train_set_encoder,
     train_tag_encoder,
     train_tag_mean_encoder,
@@ -152,6 +156,11 @@ def run_ingest_sublens(config: Config, encoder: str = "hash") -> Path:
     return write_coverage_report(config.data.catalog_value_root)
 
 
+def run_ingest_rt(config: Config) -> Path:
+    ingest_rt_scores(catalog_root=config.data.catalog_value_root)
+    return write_coverage_report(config.data.catalog_value_root)
+
+
 MODALITIES = (
     "metadata",
     "genome",
@@ -173,6 +182,7 @@ MODALITIES = (
     "genome_reception",
     "script_tags",
     "script_tags_mean",
+    "rt_scores",
 )
 
 GENOME_BUCKET_MODALITIES = {
@@ -452,6 +462,43 @@ def run_train(config: Config, modality: str) -> Path:
         )
         pred = predict_mlp(model, x)
         save_checkpoint(out / "model.eqx", model)
+    elif modality == "rt_scores":
+        batch = load_sublens_blocks("bge")
+        silver = silver_movie_rows()
+        used_train, used_hold = _gold_split(split, silver, batch.mask)
+        x = pooled_block_features(batch, include_action=False)
+        y, score_mask = rt_target_matrices(z.shape[0])
+        labeled = np.flatnonzero(score_mask.any(axis=1))
+        used_train = np.intersect1d(used_train, labeled)
+        used_hold = np.intersect1d(used_hold, labeled)
+        if used_train.size < 20:
+            raise ValueError(f"rt_scores train set too small: {used_train.size}")
+        print(f"rt labels train={used_train.size:,}  holdout={used_hold.size:,}")
+        model, history = train_score_mlp(
+            x, y, score_mask, used_train,
+            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr,
+            weight_decay=cfg.weight_decay, seed=config.seed,
+        )
+        scores = predict_scores(model, x)
+        save_checkpoint(out / "model.eqx", model)
+        (out / "meta.json").write_text(json.dumps({"in_dim": int(x.shape[1]), "hidden": int(rep.hidden)}))
+        np.savez_compressed(
+            out / "predictions.npz",
+            scores=scores,
+            target=y,
+            mask=score_mask,
+            train_idx=used_train,
+            holdout_idx=used_hold,
+            holdout_mask=_holdout_mask(z.shape[0], used_hold),
+            history=np.asarray(history),
+        )
+        metrics = {
+            "train": score_metrics(scores[used_train], y[used_train], score_mask[used_train]),
+            "holdout": score_metrics(scores[used_hold], y[used_hold], score_mask[used_hold]),
+        }
+        (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
+        print(json.dumps({"modality": modality, **metrics["holdout"]}, indent=2))
+        return out
     else:
         raise ValueError(f"unknown modality {modality}")
 
@@ -493,18 +540,25 @@ def run_evaluate(config: Config) -> Path:
         block = json.loads(path.read_text())
         if pred_path.exists():
             pred = np.load(pred_path)
-            hold_idx = pred["holdout_idx"]
-            block["holdout"] = {
-                **block.get("holdout", {}),
-                **product_metrics(z, pred["mu"], hold_idx, n_ratings, popular, k=COMP_K),
-            }
-            if gold_hold.size:
-                block["gold_train"] = (
-                    _slice_metrics(pred, z, aux, gold_train) if gold_train.size else {}
-                )
-                block["gold_holdout"] = _slice_metrics(
-                    pred, z, aux, gold_hold, n_ratings=n_ratings, popular=popular
-                )
+            if "scores" in pred.files:
+                hold_idx = pred["holdout_idx"]
+                block["holdout"] = {
+                    **block.get("holdout", {}),
+                    **score_metrics(pred["scores"][hold_idx], pred["target"][hold_idx], pred["mask"][hold_idx]),
+                }
+            elif "mu" in pred.files:
+                hold_idx = pred["holdout_idx"]
+                block["holdout"] = {
+                    **block.get("holdout", {}),
+                    **product_metrics(z, pred["mu"], hold_idx, n_ratings, popular, k=COMP_K),
+                }
+                if gold_hold.size:
+                    block["gold_train"] = (
+                        _slice_metrics(pred, z, aux, gold_train) if gold_train.size else {}
+                    )
+                    block["gold_holdout"] = _slice_metrics(
+                        pred, z, aux, gold_hold, n_ratings=n_ratings, popular=popular
+                    )
         summary[modality] = block
     dest = output_dir() / "ablation.json"
     dest.write_text(json.dumps(summary, indent=2))
@@ -514,6 +568,13 @@ def run_evaluate(config: Config) -> Path:
     )
     for name, block in summary.items():
         ho = block.get("holdout") or {}
+        if name == "rt_scores":
+            print(
+                f"{name:<22} critics ρ={ho.get('spearman_critics', 0):.2f}  "
+                f"audience ρ={ho.get('spearman_audience', 0):.2f}  "
+                f"gap ρ={ho.get('spearman_gap', 0):.2f}  n={int(ho.get('n', 0))}"
+            )
+            continue
         print(
             f"{name:<22} {ho.get('cosine_mean', 0):7.3f} "
             f"{ho.get('neighbor_recall_at_10', 0):7.3f} "
@@ -556,7 +617,11 @@ def run_figures(config: Config) -> Path:
         if not pred_path.exists():
             continue
         pred = np.load(pred_path)
+        if "mu" not in pred.files:
+            continue
         metrics = json.loads((output_dir() / modality / "metrics.json").read_text())
+        if "cosine_mean" not in metrics.get("train", {}):
+            continue
         ablation_rows.append(
             (label, metrics["train"]["cosine_mean"], metrics["holdout"]["cosine_mean"])
         )
@@ -845,6 +910,24 @@ def run_predict(config: Config, text: str, *, k: int = 8, as_json: bool = False)
         },
         "comps": comps.to_dicts() if comps is not None else [],
     }
+    rt_dir = output_dir() / "rt_scores"
+    rt_ckpt = rt_dir / "model.eqx"
+    rt_meta = rt_dir / "meta.json"
+    if rt_ckpt.exists() and rt_meta.exists():
+        meta = json.loads(rt_meta.read_text())
+        if int(meta.get("in_dim", -1)) == int(pooled.shape[-1]):
+            score_like = ScoreMLP(
+                in_dim=int(pooled.shape[-1]),
+                hidden=int(meta.get("hidden", config.representation.hidden)),
+                key=jax.random.key(0),
+            )
+            score_model = load_checkpoint(rt_ckpt, score_like)
+            rt_hat = predict_scores(score_model, pooled)[0]
+            result["rt"] = {
+                "critics": float(rt_hat[0] * 100.0),
+                "audience": float(rt_hat[1] * 100.0),
+                "source": "hetrec-2011 snapshot, predicted from text",
+            }
     print(json.dumps(result, indent=2) if as_json else format_predict_card(result))
     return result
 
