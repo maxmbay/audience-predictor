@@ -223,6 +223,45 @@ def plot_two_step(oracle: float, isab: float, mean_tags: float, narrative: float
     return savefig(fig, path)
 
 
+def plot_product_recall(
+    rows: list[tuple[str, float, float, str]],
+    chance: float,
+    path: Path,
+) -> Path:
+    """Comps recall@10 overall vs on obscure holdout titles."""
+    import matplotlib.pyplot as plt
+
+    apply_style()
+    fig, ax = plt.subplots(figsize=(10.2, 5.8))
+    labels = [r[0] for r in rows]
+    overall = np.array([r[1] for r in rows], dtype=float)
+    obscure = np.array([r[2] for r in rows], dtype=float)
+    kinds = [r[3] for r in rows]
+    palette = {"script": TEAL, "ceiling": GOLD, "leak": RED, "fail": MUTED, "baseline": MUTED}
+    y = np.arange(len(labels))
+    ax.barh(y + 0.18, overall, height=0.32, color=[palette.get(k, MUTED) for k in kinds], zorder=3)
+    ax.barh(y - 0.18, obscure, height=0.32, color="#99c4c0", zorder=3, label="obscure half")
+    if chance > 0:
+        ax.axvline(chance, color=MUTED, lw=1, ls="--", zorder=1)
+        ax.text(chance + 0.002, len(labels) - 0.35, " chance", color=MUTED, fontsize=8, va="top")
+    ax.set_yticks(y, labels=labels)
+    ax.set_xlabel("comps recall@10 vs collaborative neighbors")
+    ax.set_title("Does the neighborhood match the audience, including obscure films?")
+    xmax = max(0.12, float(np.max(np.r_[overall, obscure, 0.0])) * 1.25, chance * 8)
+    ax.set_xlim(0, min(1.0, xmax))
+    for yi, val in zip(y, overall, strict=True):
+        ax.text(val + 0.004, yi + 0.18, f"{val:.3f}", va="center", fontsize=8, color=INK)
+    ax.legend(
+        handles=[
+            plt.Line2D([0], [0], color=TEAL, lw=6, label="all holdout"),
+            plt.Line2D([0], [0], color="#99c4c0", lw=6, label="obscure half"),
+        ],
+        loc="lower right",
+    )
+    ax.invert_yaxis()
+    return savefig(fig, path)
+
+
 def plot_baseline_atlas(
     xy: np.ndarray,
     genome_xy: np.ndarray,

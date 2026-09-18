@@ -57,6 +57,30 @@ def _metrics_block() -> str:
         lines.append(
             f"| {name} | {tr['cosine_mean']:.3f} | {ho['cosine_mean']:.3f} | {ho.get('n', 0):,} | {gold_cell} |"
         )
+    if any((block.get("holdout") or {}).get("neighbor_recall_at_10") is not None for block in data.values()):
+        lines += [
+            "",
+            "| Modality | Comps recall@10 | Obscure | Famous | Spearman P(love) | Spearman P(hate) |",
+            "|----------|----------------:|--------:|-------:|-----------------:|-----------------:|",
+        ]
+        for name, block in data.items():
+            ho = block.get("holdout") or {}
+            if ho.get("neighbor_recall_at_10") is None:
+                continue
+            lines.append(
+                "| {name} | {r:.3f} | {o} | {f} | {love:.2f} | {hate:.2f} |".format(
+                    name=name,
+                    r=ho["neighbor_recall_at_10"],
+                    o=f"{ho['neighbor_recall_at_10_obscure']:.3f}"
+                    if "neighbor_recall_at_10_obscure" in ho
+                    else "—",
+                    f=f"{ho['neighbor_recall_at_10_famous']:.3f}"
+                    if "neighbor_recall_at_10_famous" in ho
+                    else "—",
+                    love=ho.get("spearman_p_love", 0),
+                    hate=ho.get("spearman_p_hate", 0),
+                )
+            )
     return "\n".join(lines)
 
 
@@ -184,7 +208,21 @@ def _findings() -> str:
 - **Script → tags → audience.** Independent script-visible relevances (not a simplex),
   then the genome_script audience MLP. {"; ".join(parts)}.
   Predicted tags collapse toward the average profile; the 0.32 oracle ceiling
-  does not transfer yet. `predict --text-file` uses BGE mean-pool for z.
+  does not transfer yet. `predict --text-file` routes screenplays to
+  dialogue_mean and everything else to subtitle_mean.
+"""
+    if sub_m and sub_m.get("neighbor_recall_at_10") is not None:
+        gold_note += f"""
+- **Product metric (comps recall@10).** Parked subtitle BGE recovers
+  {sub_m.get('neighbor_recall_at_10', 0):.3f} of collaborative neighbors
+  (chance {sub_m.get('neighbor_recall_chance', 0):.4f}),
+  obscure {sub_m.get('neighbor_recall_at_10_obscure', 0):.3f} vs famous
+  {sub_m.get('neighbor_recall_at_10_famous', 0):.3f}.
+  Spearman P(love) {sub_m.get('spearman_p_love', 0):.2f}, P(hate)
+  {sub_m.get('spearman_p_hate', 0):.2f}. Dialogue mean-pool on gold is
+  {dm.get('neighbor_recall_at_10', 0):.3f} recall
+  ({dm.get('spearman_p_love', 0):.2f} love) — routing a screenplay to that
+  head is only a win if those comps beat subtitle_mean on the same titles.
 """
     if not gold_note:
         gold_note = """

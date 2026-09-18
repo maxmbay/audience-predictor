@@ -12,3 +12,4 @@ def test_cli_help(capsys):
     assert "ingest-sublens" in out
     assert "predict" in out
     assert "model-card" in out
+    assert "probes" in out

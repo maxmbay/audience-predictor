@@ -131,14 +131,18 @@ can exist on a spec. Gold needs a production. Red needs an audience.
 2. Pack into ≤32 blocks.
 3. Embed with frozen BGE.
 4. Masked mean.
-5. `subtitle_mean` AudienceMLP (trained on 5,784 SubLens titles).
-6. Print comps and polarization.
+5. Route the head: screenplay / shooting_script → `dialogue_mean` (MovieSum
+   gold); everything else → `subtitle_mean` (SubLens silver).
+6. Print a guess card: comps, polarization, σ. σ is not calibrated.
 
 Heads: two GELU / LayerNorm layers, width 256, then μ ∈ R^64, log σ², bias,
 and four aux stats. Loss is MSE on z, Gaussian NLL, bias MSE, aux MSE.
 
+`--json` dumps the same payload for machines. Predicted genome tags are not
+on this path.
+
 This is weaker than genome. It is the only narrative map that currently
-produces a usable neighborhood from text that could exist **before ratings**.
+produces a neighborhood from text that could exist **before ratings**.
 
 ---
 
@@ -173,15 +177,21 @@ right map is coarser. It is also the one you can run on an unmade script.
 
 Holdout numbers for the parked comparison set:
 
-| Map | Cosine | Spearman mean rating | n |
-|---|---:|---:|---:|
-| Full genome | 0.379 | 0.91 | 1,596 |
-| Oracle script-visible tags | 0.324 | 0.89 | 1,596 |
-| Metadata | 0.185 | 0.55 | 1,596 |
-| BGE dialogue mean-pool | 0.150 | 0.18 | 332 |
-| **BGE subtitle mean-pool (baseline)** | **0.123** | **0.38** | **1,446** |
-| Hashed subtitles | 0.033 | 0.03 | 1,446 |
-| ISAB → tags → z | 0.024 | −0.17 | 1,446 |
+| Map | Cosine | Spearman mean | P(love) | Comps R@10 | Obscure R@10 | n |
+|---|---:|---:|---:|---:|---:|---:|
+| Full genome | 0.379 | 0.91 | 0.91 | 0.053 | 0.045 | 1,596 |
+| Oracle script-visible tags | 0.324 | 0.89 | 0.88 | 0.033 | 0.025 | 1,596 |
+| Metadata (genre + year) | 0.185 | 0.55 | 0.56 | 0.019 | 0.017 | 1,596 |
+| BGE dialogue mean-pool | 0.150 | 0.18 | 0.20 | 0.013 | 0.012 | 332 |
+| **BGE subtitle mean-pool (baseline)** | **0.123** | **0.38** | **0.43** | **0.009** | **0.009** | **1,446** |
+| Hashed subtitles | 0.033 | 0.03 | 0.25 | 0.003 | 0.003 | 1,446 |
+| ISAB → tags → z | 0.024 | −0.17 | −0.01 | 0.002 | 0.001 | 1,446 |
+
+Chance comps R@10 is **0.003** (10 / ~2,955 popular titles). Genome itself only
+recovers about half of one collaborative neighbor in the top 10 — cosine 0.38
+is not a tight neighborhood. Hashed maps sit on chance. The parked baseline
+is ~3× chance, and **identical on obscure vs famous**, so it is not a
+popularity leak.
 
 H2 (full screenplay beats dialogue) is not supported at working recovery.
 Mean-pool beats ISAB/PMA. Polarization can be useful when cosine is modest.
@@ -189,17 +199,59 @@ Mean-pool beats ISAB/PMA. Polarization can be useful when cosine is modest.
 
 ---
 
+## Product metric: does the neighborhood match?
+
+![Product recall](../reports/figures/model/product_recall.png)
+
+Cosine asks “how close is μ to z_i?” The product asks “who does this sit
+next to?” Comps recall@10 is that question: of the 10 popular films nearest
+the true fingerprint, how many are among the 10 nearest the predicted μ.
+
+Genre + year still beats any narrative map on this metric (0.019 vs 0.009).
+That is the honest bar for an unmade original that does not yet have a
+locked genre. Franchise-shaped scripts (Star Wars, Pirates, LOTR) already
+look useful to a reader even when recall is low: narrative finds sequels
+and siblings, while collaborative neighbors of a mega-hit are prestige
+taste-mates. Cards: [reports/probes.md](../reports/probes.md).
+
+Matched gold holdout (same 332 MovieSum titles):
+
+| Head | Cosine | Comps R@10 | Spearman P(love) |
+|---|---:|---:|---:|
+| `dialogue_mean` (screenplay route) | 0.150 | **0.013** | 0.20 |
+| `subtitle_mean` (baseline) | 0.084 | 0.008 | **0.30** |
+| metadata | 0.184 | 0.013 | 0.54 |
+| genome | 0.436 | 0.057 | 0.88 |
+
+Routing a screenplay to `dialogue_mean` **wins comps**, **loses
+polarization**, on the titles that head was trained for. `predict` now
+routes that way. Subtitle / SRT / unknown stay on `subtitle_mean`.
+
+---
+
 ## How later branches should compare
 
 Do not treat “beat 0.379 genome cosine” as success. Compare against **this
-baseline** (`subtitle_mean` / `predict`):
+baseline** on the same holdout movies:
 
-1. Comps recall@k vs collaborative neighbors, especially on obscure titles.
-2. Spearman of P(love) / P(hate) / mean rating.
-3. Qualitative probes: does a reader trust the neighborhood?
-4. Document-type routing (screenplay head vs subtitle head) if it wins on (1)–(3).
-5. Tag readers, contrastive φ, LLM tropes — only if they beat this path on
-   the same holdout movies.
+| Gate | Parked number | Notes |
+|---|---|---|
+| Comps recall@10 | **0.009** (subtitle, n=1,446) | Must beat this on SubLens holdout. Chance is 0.003. |
+| Obscure recall@10 | **0.009** | Equal to famous — do not win by leaking hits. |
+| Spearman mean rating | **0.38** | |
+| Spearman P(love) / P(hate) | **0.43 / 0.35** | |
+| Screenplay comps (gold n=332) | **0.013** (`dialogue_mean`) | Beat this to replace the screenplay head. |
+| Qualitative | [probes.md](../reports/probes.md) | A reader marks useful / not. |
+
+Parked research (fewer tropes, tag-name queries, contrastive φ, LLM-as-tagger)
+only ships if it clears those gates. Genome cosine is a comparison, not a
+ship criterion.
+
+```bash
+PYTHONPATH=src uv run python -m audience_predictor evaluate
+PYTHONPATH=src uv run python -m audience_predictor probes
+PYTHONPATH=src uv run python -m audience_predictor predict --text-file path/to/script.txt
+```
 
 Lab log: [issue #1](https://github.com/maxmbay/audience-predictor/issues/1).
-EOF
+

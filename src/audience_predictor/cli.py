@@ -13,6 +13,7 @@ from audience_predictor.pipeline import (
     run_ingest_sublens,
     run_model_card,
     run_predict,
+    run_probes,
     run_scaling,
     run_train,
 )
@@ -67,7 +68,9 @@ def main(argv: list[str] | None = None) -> None:
     )
     predict = sub.add_parser("predict", help="Audience fingerprint from a script or other text")
     predict.add_argument("--text-file", type=Path, required=True, help="Screenplay, SRT, or prose")
+    predict.add_argument("--json", action="store_true", help="Machine-readable dump instead of the card")
     sub.add_parser("evaluate", help="Summarize trained modalities on the movie-level holdout")
+    sub.add_parser("probes", help="Write holdout comps cards for a qualitative useful/not pass")
     sub.add_parser("figures", help="Write report figures from trained checkpoints")
     sub.add_parser("model-card", help="Write baseline DAG and model-card figures")
     sub.add_parser("scaling", help="Holdout cosine vs number of training titles (genome)")
@@ -86,9 +89,15 @@ def main(argv: list[str] | None = None) -> None:
     elif args.command == "train":
         run_train(config, args.modality)
     elif args.command == "predict":
-        run_predict(config, args.text_file.read_text(encoding="utf-8", errors="replace"))
+        run_predict(
+            config,
+            args.text_file.read_text(encoding="utf-8", errors="replace"),
+            as_json=args.json,
+        )
     elif args.command == "evaluate":
         run_evaluate(config)
+    elif args.command == "probes":
+        print(run_probes(config))
     elif args.command == "figures":
         run_figures(config)
     elif args.command == "model-card":

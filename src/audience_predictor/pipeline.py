@@ -19,6 +19,7 @@ from audience_predictor.data.bridge import (
     titles_path,
 )
 from audience_predictor.data.coverage import write_coverage_report
+from audience_predictor.data.encoder import get_encoder
 from audience_predictor.data.genome import (
     content_features,
     genome_bucket_matrix,
@@ -41,19 +42,26 @@ from audience_predictor.data.narrative import (
     pooled_block_features,
     tag_blocks_for_movies,
 )
+from audience_predictor.data.splits import movie_split
 from audience_predictor.data.subtitles import (
     ingest_sublens,
     load_sublens_blocks,
     silver_movie_rows,
 )
-from audience_predictor.data.splits import movie_split
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
-from audience_predictor.data.encoder import get_encoder
-from audience_predictor.eval.comps import neighbor_table, neighbors_from_vector
+from audience_predictor.eval.comps import (
+    COMP_K,
+    COMP_MIN_RATINGS,
+    neighbor_table,
+    neighbors_from_vector,
+    popular_rows,
+    product_metrics,
+)
+from audience_predictor.eval.heads import format_predict_card, predict_head_for_document
 from audience_predictor.eval.metrics import cosine, recovery_metrics
 from audience_predictor.models.mlp import AudienceMLP
-from audience_predictor.paths import output_dir
+from audience_predictor.paths import output_dir, reports_dir
 from audience_predictor.train.loop import (
     load_checkpoint,
     predict_mlp,
@@ -82,6 +90,7 @@ from audience_predictor.viz.model_card import (
     plot_architecture_dag,
     plot_baseline_atlas,
     plot_honesty_ladder,
+    plot_product_recall,
     plot_tag_constellation,
     plot_two_step,
     plot_usefulness_plane,
@@ -191,14 +200,25 @@ def _holdout_mask(n: int, hold_idx: np.ndarray) -> np.ndarray:
     return mask
 
 
-def _slice_metrics(pred: dict, z, aux, idx: np.ndarray) -> dict:
-    return recovery_metrics(
+def _slice_metrics(
+    pred: dict,
+    z,
+    aux,
+    idx: np.ndarray,
+    *,
+    n_ratings: np.ndarray | None = None,
+    popular: np.ndarray | None = None,
+) -> dict:
+    out = recovery_metrics(
         pred["mu"][idx],
         z[idx],
         pred["log_var"][idx],
         pred["aux"][idx],
         aux[idx],
     )
+    if n_ratings is not None and popular is not None and np.asarray(idx).size:
+        out.update(product_metrics(z, pred["mu"], idx, n_ratings, popular, k=COMP_K))
+    return out
 
 
 def run_train(config: Config, modality: str) -> Path:
@@ -459,7 +479,8 @@ def run_train(config: Config, modality: str) -> Path:
 
 
 def run_evaluate(config: Config) -> Path:
-    _root, _movies, z, _bias, _n_ratings, aux, split, _years = _load_spine(config)
+    _root, movies, z, _bias, n_ratings, aux, split, _years = _load_spine(config)
+    popular = popular_rows(movies, COMP_MIN_RATINGS)
     gold = gold_movie_rows() if provenance_path().exists() else np.zeros(0, dtype=np.int64)
     gold_train = np.intersect1d(split.train_idx, gold)
     gold_hold = np.intersect1d(split.holdout_idx, gold)
@@ -470,14 +491,37 @@ def run_evaluate(config: Config) -> Path:
         if not path.exists():
             continue
         block = json.loads(path.read_text())
-        if pred_path.exists() and gold_hold.size:
+        if pred_path.exists():
             pred = np.load(pred_path)
-            block["gold_train"] = _slice_metrics(pred, z, aux, gold_train) if gold_train.size else {}
-            block["gold_holdout"] = _slice_metrics(pred, z, aux, gold_hold)
+            hold_idx = pred["holdout_idx"]
+            block["holdout"] = {
+                **block.get("holdout", {}),
+                **product_metrics(z, pred["mu"], hold_idx, n_ratings, popular, k=COMP_K),
+            }
+            if gold_hold.size:
+                block["gold_train"] = (
+                    _slice_metrics(pred, z, aux, gold_train) if gold_train.size else {}
+                )
+                block["gold_holdout"] = _slice_metrics(
+                    pred, z, aux, gold_hold, n_ratings=n_ratings, popular=popular
+                )
         summary[modality] = block
     dest = output_dir() / "ablation.json"
     dest.write_text(json.dumps(summary, indent=2))
-    print(dest.read_text())
+    print(f"Wrote {dest}")
+    print(
+        f"{'modality':<22} {'cos':>7} {'R@10':>7} {'obscure':>8} {'love':>6} {'hate':>6} {'n':>6}"
+    )
+    for name, block in summary.items():
+        ho = block.get("holdout") or {}
+        print(
+            f"{name:<22} {ho.get('cosine_mean', 0):7.3f} "
+            f"{ho.get('neighbor_recall_at_10', 0):7.3f} "
+            f"{ho.get('neighbor_recall_at_10_obscure', 0):8.3f} "
+            f"{ho.get('spearman_p_love', 0):6.2f} "
+            f"{ho.get('spearman_p_hate', 0):6.2f} "
+            f"{int(ho.get('n', 0)):6d}"
+        )
     return dest
 
 
@@ -684,6 +728,37 @@ def run_model_card(config: Config) -> Path:
         figs / "two_step.png",
     )
 
+    def recall(name: str) -> float:
+        return float(_holdout_block(data, name).get("neighbor_recall_at_10", 0.0))
+
+    def recall_obscure(name: str) -> float:
+        return float(_holdout_block(data, name).get("neighbor_recall_at_10_obscure", 0.0))
+
+    chance = float(_holdout_block(data, "subtitle_mean").get("neighbor_recall_chance", 0.0))
+    plot_product_recall(
+        [
+            ("hashed subtitles", recall("subtitle"), recall_obscure("subtitle"), "fail"),
+            ("ISAB → tags", recall("script_tags"), recall_obscure("script_tags"), "fail"),
+            ("metadata", recall("metadata"), recall_obscure("metadata"), "baseline"),
+            (
+                "BGE subtitle mean-pool  ← parked baseline",
+                recall("subtitle_mean"),
+                recall_obscure("subtitle_mean"),
+                "script",
+            ),
+            ("BGE dialogue mean-pool", recall("dialogue_mean"), recall_obscure("dialogue_mean"), "script"),
+            (
+                "oracle script-visible tags",
+                recall("genome_script"),
+                recall_obscure("genome_script"),
+                "ceiling",
+            ),
+            ("full genome", recall("genome"), recall_obscure("genome"), "leak"),
+        ],
+        chance,
+        figs / "product_recall.png",
+    )
+
     xy = np.load(atlas_path(root))["xy"]
     pca = PCA(n_components=2, random_state=config.seed).fit(z)
     genome_pred = output_dir() / "genome" / "predictions.npz"
@@ -711,22 +786,38 @@ def run_model_card(config: Config) -> Path:
     return figs
 
 
-def run_predict(config: Config, text: str, *, k: int = 8) -> dict:
+def _pool_for_head(
+    dialogue: np.ndarray,
+    action: np.ndarray,
+    mask: np.ndarray,
+    structure: np.ndarray,
+    head: str,
+) -> np.ndarray:
+    weights = mask.astype(np.float32)[..., None]
+    denom = np.clip(weights.sum(axis=1), 1.0, None)
+    pooled = (dialogue * weights).sum(axis=1) / denom
+    if head == "screenplay_mean":
+        action_mean = (action * weights).sum(axis=1) / denom
+        return np.concatenate([pooled, action_mean, structure], axis=1)
+    return pooled
+
+
+def run_predict(config: Config, text: str, *, k: int = 8, as_json: bool = False) -> dict:
     """Drop in any narrative text; print comps and polarization.
 
-    Fingerprint comes from frozen-BGE mean-pool → audience MLP (subtitle_mean),
-    the only narrative map that currently beats chance. Predicted genome tags
-    are not used for z until they beat this baseline.
+    Screenplays use the gold dialogue_mean head when it exists. Everything
+    else uses the parked subtitle_mean baseline. Predicted genome tags are
+    not used for z until they beat this baseline on comps and polarization.
     """
-    mean_ckpt = output_dir() / "subtitle_mean" / "model.eqx"
-    if not mean_ckpt.exists():
-        raise FileNotFoundError("Train subtitle_mean before predict.")
     encoder = get_encoder("bge")
-    dialogue, _action, mask, _struct, kind = blocks_from_document(
+    dialogue, action, mask, structure, kind = blocks_from_document(
         text, max_blocks=config.data.max_blocks, encoder=encoder
     )
-    weights = mask.astype(np.float32)[..., None]
-    pooled = (dialogue * weights).sum(axis=1) / np.clip(weights.sum(axis=1), 1.0, None)
+    head = predict_head_for_document(kind)
+    ckpt = output_dir() / head / "model.eqx"
+    if not ckpt.exists():
+        raise FileNotFoundError(f"Train {head} before predict.")
+    pooled = _pool_for_head(dialogue, action, mask, structure, head)
     key = jax.random.key(0)
     mlp_like = AudienceMLP(
         in_dim=pooled.shape[-1],
@@ -734,16 +825,18 @@ def run_predict(config: Config, text: str, *, k: int = 8) -> dict:
         hidden=config.representation.hidden,
         key=key,
     )
-    mlp = load_checkpoint(mean_ckpt, mlp_like)
+    mlp = load_checkpoint(ckpt, mlp_like)
     pred = predict_mlp(mlp, pooled)
     mu = pred["mu"][0]
     aux = pred["aux"][0]
-    root, movies, z, _bias, _n_ratings, _aux, _split, _years = _load_spine(config)
+    sigma = float(np.exp(0.5 * pred["log_var"][0]))
+    _root, movies, z, _bias, _n_ratings, _aux, _split, _years = _load_spine(config)
     comps = neighbors_from_vector(movies, z, mu, k=k)
     result = {
-        "path": "subtitle_mean",
+        "path": head,
         "document_type": kind,
         "n_blocks": int(mask.sum()),
+        "sigma": sigma,
         "polarization": {
             "mean_rating": float(aux[0]),
             "rating_std": float(aux[1]),
@@ -752,8 +845,79 @@ def run_predict(config: Config, text: str, *, k: int = 8) -> dict:
         },
         "comps": comps.to_dicts() if comps is not None else [],
     }
-    print(json.dumps(result, indent=2))
+    print(json.dumps(result, indent=2) if as_json else format_predict_card(result))
     return result
+
+
+def run_probes(config: Config, *, k: int = 6, n_each: int = 5) -> Path:
+    """Write holdout title comps for a human 'useful / not' pass. No script text."""
+    _root, movies, z, _bias, n_ratings, _aux, split, _years = _load_spine(config)
+    gold = gold_movie_rows() if provenance_path().exists() else np.zeros(0, dtype=np.int64)
+    hold = np.intersect1d(split.holdout_idx, gold)
+    dest = reports_dir() / "probes.md"
+    if hold.size == 0:
+        dest.write_text("# Qualitative probes\n\nNo gold holdout titles yet.\n")
+        return dest
+    counts = n_ratings[hold]
+    order = np.argsort(counts)
+    pick = np.unique(np.concatenate([hold[order[:n_each]], hold[order[-n_each:]]]))
+    pick = pick[np.argsort(n_ratings[pick])]
+    spaces: dict[str, np.ndarray | None] = {
+        "collaborative": z,
+        "subtitle_mean": None,
+        "dialogue_mean": None,
+        "genome": None,
+    }
+    for name in ("subtitle_mean", "dialogue_mean", "genome"):
+        path = output_dir() / name / "predictions.npz"
+        if path.exists():
+            spaces[name] = np.load(path)["mu"]
+    titles = dict(zip(movies["movie_row"].to_list(), movies["title"].to_list()))
+    lines = [
+        "# Qualitative probes",
+        "",
+        "Held-out MovieSum titles, obscure then famous. Neighborhoods only —",
+        "no screenplay text. Mark each card useful / not against the collaborative",
+        "column. Later branches have to beat `subtitle_mean` here, not genome cosine.",
+        "",
+    ]
+    median = float(np.median(counts))
+    for idx in pick:
+        i = int(idx)
+        name = titles.get(i, f"movie_row={i}")
+        band = "famous" if n_ratings[i] >= median else "obscure"
+        lines.append(f"## {name}")
+        lines.append("")
+        lines.append(f"{band}  ·  {int(n_ratings[i]):,} MovieLens ratings  ·  holdout")
+        lines.append("")
+        tables: dict[str, list[str]] = {}
+        for label, space in spaces.items():
+            if space is None:
+                continue
+            table = neighbor_table(movies, space, name, k=k)
+            if table is not None:
+                tables[label] = table["title"].to_list()
+        labels = [
+            lab
+            for lab in ("collaborative", "subtitle_mean", "dialogue_mean", "genome")
+            if lab in tables
+        ]
+        if not labels:
+            continue
+        header = "| rank | " + " | ".join(labels) + " |"
+        sep = "|-----:|" + "|".join(["---"] * len(labels)) + "|"
+        lines.append(header)
+        lines.append(sep)
+        depth = max(len(tables[lab]) for lab in labels)
+        for rank in range(depth):
+            cells = [str(rank + 1)]
+            for lab in labels:
+                col = tables[lab]
+                cells.append(col[rank] if rank < len(col) else "")
+            lines.append("| " + " | ".join(cells) + " |")
+        lines.append("")
+    dest.write_text("\n".join(lines) + "\n")
+    return dest
 
 
 def run_scaling(config: Config) -> Path:
