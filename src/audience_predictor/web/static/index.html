@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>AUDIENCE PREDICTOR</title>
+  <link rel="stylesheet" href="/static/app.css" />
+</head>
+<body>
+  <div class="page">
+    <header class="title-page">
+      <p class="draft">WORKING DRAFT  ·  NOT A GREENLIGHT</p>
+      <h1>AUDIENCE PREDICTOR</h1>
+      <p class="byline">written by</p>
+      <p class="author">the pages themselves</p>
+      <p class="from">scene craft first, audience map second</p>
+      <div class="stamp">COVERAGE</div>
+    </header>
+
+    <p class="transition">FADE IN:</p>
+
+    <section class="scene">
+      <h2>INT. COVERAGE DESK - CONTINUOUS</h2>
+      <p class="action">
+        A cold-start guess. Drop a screenplay, an SRT, or prose. The judge
+        reads scenes as typed questions: does it turn, does someone want
+        something, is it specific, is it on the nose. The audience map is
+        a sidecar, not the grade.
+      </p>
+
+      <div id="drop" class="drop" tabindex="0">
+        <p class="char">YOU</p>
+        <p class="dialogue">Drop a <span class="file-types">.fountain / .txt / .srt</span> here, or click to open.</p>
+        <input id="file" type="file" accept=".txt,.fountain,.srt,.spmd,.md" hidden />
+      </div>
+
+      <p class="action">Or load an original spec. These are not the films. They are pages written to exercise the map.</p>
+
+      <div id="demos" class="demos"></div>
+    </section>
+
+    <p class="transition" id="cut" hidden>CUT TO:</p>
+
+    <section id="desk" class="desk" hidden>
+      <h2>INT. DASHBOARD - CONTINUOUS</h2>
+      <p class="slug-meta" id="meta"></p>
+      <p class="guess" id="guess">THIS IS COVERAGE. Stamp is pass / consider / recommend. σ is not a Tomatometer.</p>
+
+      <div class="verdict-wrap">
+        <div id="verdict" class="verdict consider">—</div>
+        <p class="verdict-sub" id="verdict-sub"></p>
+      </div>
+
+      <article class="card wide timeseries">
+        <h3>JEV  ·  SCENE TIME</h3>
+        <p class="legend" id="jev-legend">
+          <span class="swatch turns">TURNS</span>
+          <span class="swatch want">WANT</span>
+          <span class="swatch specific">SPECIFIC</span>
+          <span class="swatch nose">ON THE NOSE</span>
+          <span class="swatch dead">DEAD AIR</span>
+          <span class="swatch craft">CRAFT</span>
+        </p>
+        <svg id="jev-plot" class="plot timeseries-plot" viewBox="0 0 640 168" aria-label="Jev scene timeseries"></svg>
+        <p class="note readout" id="jev-readout">softmax of the five noul heads, left to right through the pages</p>
+      </article>
+
+      <div class="grid">
+        <article class="card">
+          <h3>WHAT IS IT</h3>
+          <p class="stat"><span>GENRE</span><span id="cov-genre">—</span></p>
+          <p class="stat"><span>SCENES</span><span id="cov-scenes">—</span></p>
+          <p class="stat"><span>CHARACTERS</span><span id="cov-chars">—</span></p>
+          <p class="stat"><span>GENERICNESS</span><span id="cov-generic">—</span></p>
+          <div class="bar warn"><i id="bar-generic"></i></div>
+          <p class="note" id="cov-people"></p>
+        </article>
+
+        <article class="card">
+          <h3>IS IT GOOD  ·  SCENE MEANS</h3>
+          <p class="stat"><span>TURNS</span><span id="m-turns">—</span></p>
+          <div class="bar"><i id="bar-turns"></i></div>
+          <p class="stat"><span>WANT</span><span id="m-want">—</span></p>
+          <div class="bar"><i id="bar-want"></i></div>
+          <p class="stat"><span>SPECIFIC</span><span id="m-specific">—</span></p>
+          <div class="bar"><i id="bar-specific"></i></div>
+          <p class="stat"><span>ON THE NOSE</span><span id="m-nose">—</span></p>
+          <div class="bar hate"><i id="bar-nose"></i></div>
+          <p class="stat"><span>DEAD AIR</span><span id="m-dead">—</span></p>
+          <div class="bar hate"><i id="bar-dead"></i></div>
+        </article>
+      </div>
+
+      <article class="card wide">
+        <h3>SCENES JUDGED</h3>
+        <ol id="scene-rows" class="scene-rows"></ol>
+      </article>
+
+      <article class="card wide sidecar" id="sidecar">
+        <h3>SIDECAR  ·  AUDIENCE MAP</h3>
+        <p class="note" id="audience-note">Neighborhood in MovieLens z. Not a quality grade.</p>
+        <div class="grid">
+          <div>
+            <p class="stat"><span>MEAN RATING</span><span id="mean-rating">—</span></p>
+            <div class="scale" id="rating-scale"></div>
+            <p class="stat"><span>P(LOVE)</span><span id="p-love">—</span></p>
+            <div class="bar"><i id="bar-love"></i></div>
+            <p class="stat"><span>P(HATE)</span><span id="p-hate">—</span></p>
+            <div class="bar hate"><i id="bar-hate"></i></div>
+          </div>
+          <div>
+            <p class="stat"><span>CRITICS</span><span id="rt-critics">—</span></p>
+            <p class="stat"><span>AUDIENCE</span><span id="rt-audience">—</span></p>
+            <p class="stat"><span>GAP</span><span id="rt-gap">—</span></p>
+            <svg id="rt-plot" class="plot" viewBox="0 0 320 120" aria-label="Beta posteriors"></svg>
+            <p class="note" id="rt-note"></p>
+          </div>
+        </div>
+        <ol id="comps" class="comps"></ol>
+      </article>
+
+      <article class="card wide">
+        <h3>PAGES</h3>
+        <pre id="excerpt" class="excerpt"></pre>
+      </article>
+    </section>
+
+    <p class="status" id="status" role="status"></p>
+
+    <p class="transition">FADE OUT.</p>
+    <footer>
+      OpenJev / NLI scene judge  ·  heuristic if weights are not cached<br />
+      Audience map is a sidecar. This is coverage, not a greenlight.
+    </footer>
+  </div>
+  <script src="/static/app.js"></script>
+</body>
+</html>

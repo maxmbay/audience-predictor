@@ -23,6 +23,17 @@ dependencies = [
 encoder = [
     "fastembed>=0.4",
 ]
+web = [
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "python-multipart>=0.0.9",
+    "uvicorn[standard]>=0.32",
+]
+openjev = [
+    "accelerate>=0.34",
+    "torch>=2.2",
+    "transformers>=4.45",
+]
 
 [project.scripts]
 audience-predictor = "audience_predictor.cli:main"
@@ -33,6 +44,10 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/audience_predictor"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/audience_predictor/web/static" = "audience_predictor/web/static"
+"src/audience_predictor/web/specs" = "audience_predictor/web/specs"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

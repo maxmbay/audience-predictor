@@ -81,6 +81,9 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("model-card", help="Write baseline DAG and model-card figures")
     sub.add_parser("scaling", help="Holdout cosine vs number of training titles (genome)")
     sub.add_parser("report", help="Write the three-register technical report")
+    serve = sub.add_parser("serve", help="Open the coverage desk in a browser")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
     args = parser.parse_args(argv)
     config = load_config(args.config)
     if args.command == "coverage":
@@ -114,6 +117,17 @@ def main(argv: list[str] | None = None) -> None:
         run_scaling(config)
     elif args.command == "report":
         print(write_report(config))
+    elif args.command == "serve":
+        try:
+            import uvicorn
+
+            from audience_predictor.web.app import create_app
+        except ImportError as exc:
+            raise SystemExit(
+                "Web extra missing. Install with: uv sync --extra web --extra encoder"
+            ) from exc
+        print(f"Coverage desk  http://{args.host}:{args.port}")
+        uvicorn.run(create_app(), host=args.host, port=args.port)
     else:
         raise ValueError(args.command)
 
