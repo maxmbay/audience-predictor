@@ -133,6 +133,29 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 | script_tags | 0.029 | 0.024 | 1,446 | 0.024 |
 | script_tags_mean | 0.015 | 0.017 | 1,446 | 0.054 |
 
+| Modality | Comps recall@10 | Obscure | Famous | Spearman P(love) | Spearman P(hate) |
+|----------|----------------:|--------:|-------:|-----------------:|-----------------:|
+| metadata | 0.019 | 0.017 | 0.021 | 0.56 | 0.54 |
+| genome | 0.053 | 0.045 | 0.060 | 0.91 | 0.87 |
+| tags | 0.003 | 0.003 | 0.003 | 0.10 | 0.14 |
+| hierarchical | 0.001 | 0.002 | 0.001 | -0.04 | 0.02 |
+| genome_gold | 0.054 | 0.051 | 0.058 | 0.88 | 0.83 |
+| screenplay | 0.002 | 0.002 | 0.001 | -0.04 | 0.02 |
+| dialogue | 0.005 | 0.002 | 0.007 | -0.02 | 0.01 |
+| screenplay_bge | 0.001 | 0.001 | 0.002 | 0.02 | -0.09 |
+| dialogue_bge | 0.002 | 0.002 | 0.002 | 0.08 | -0.13 |
+| screenplay_mean | 0.010 | 0.007 | 0.014 | 0.25 | 0.23 |
+| dialogue_mean | 0.013 | 0.012 | 0.014 | 0.20 | 0.13 |
+| screenplay_pma | 0.003 | 0.002 | 0.004 | 0.10 | 0.21 |
+| dialogue_pma | 0.002 | 0.001 | 0.002 | 0.11 | 0.10 |
+| subtitle | 0.003 | 0.003 | 0.004 | 0.25 | 0.09 |
+| subtitle_mean | 0.009 | 0.009 | 0.009 | 0.43 | 0.35 |
+| genome_script | 0.033 | 0.025 | 0.041 | 0.88 | 0.89 |
+| genome_production | 0.040 | 0.033 | 0.047 | 0.77 | 0.78 |
+| genome_reception | 0.047 | 0.033 | 0.060 | 0.92 | 0.90 |
+| script_tags | 0.002 | 0.001 | 0.003 | -0.01 | 0.08 |
+| script_tags_mean | 0.004 | 0.003 | 0.005 | 0.20 | 0.34 |
+
 
 ### What this run actually found
 
@@ -180,7 +203,25 @@ mean rating, rating std, P(r ≥ 4), and P(r ≤ 2).
 - **Script → tags → audience.** Independent script-visible relevances (not a simplex),
   then the genome_script audience MLP. ISAB+position 0.024 (n=1446); mean-pool tags 0.017 (n=1446).
   Predicted tags collapse toward the average profile; the 0.32 oracle ceiling
-  does not transfer yet. `predict --text-file` uses BGE mean-pool for z.
+  does not transfer yet. `predict --text-file` routes screenplays to
+  dialogue_mean and everything else to subtitle_mean.
+
+- **Product metric (comps recall@10).** Parked subtitle BGE recovers
+  0.009 of collaborative neighbors
+  (chance 0.0034),
+  obscure 0.009 vs famous
+  0.009.
+  Spearman P(love) 0.43, P(hate)
+  0.35. Dialogue mean-pool on gold is
+  0.013 recall
+  (0.20 love) — routing a screenplay to that
+  head is only a win if those comps beat subtitle_mean on the same titles.
+
+- **Rotten Tomatoes estimates (reception, not script-time).** hetrec 2011
+  snapshot. Text → critics Spearman 0.57,
+  audience 0.54, gap 0.41
+  (n=1067). These numbers describe a released film. Treat them
+  as a translation of the guess card, not a greenlight.
 
 
 

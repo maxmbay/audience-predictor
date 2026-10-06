@@ -68,20 +68,72 @@ def parse_percent(value: object) -> float | None:
     return number
 
 
+def parse_count(value: object) -> int:
+    """Review / rating counts. Anything unparseable counts as no reviews."""
+    text = str(value or "").strip()
+    try:
+        return int(float(text))
+    except ValueError:
+        return 0
+
+
+def parse_optional_count(value: object) -> int | None:
+    """Like parse_count, but \\N / blanks stay missing so 0-fresh is distinct from unknown."""
+    text = str(value or "").strip()
+    if text in {"", "\\N", "N/A", "na", "null", "-1"}:
+        return None
+    try:
+        number = int(float(text))
+    except ValueError:
+        return None
+    return number if number >= 0 else None
+
+
+def _binomial_k(score: float | None, n: int, fresh: int | None) -> int | None:
+    """Fresh reviews if hetrec has them; otherwise round(score × n)."""
+    if n <= 0 or score is None:
+        return None
+    k = int(fresh) if fresh is not None else int(round(float(score) * n))
+    return int(min(max(k, 0), n))
+
+
 def parse_hetrec_movies(text: str) -> pl.DataFrame:
     frame = pl.read_csv(io.StringIO(text), separator="\t", infer_schema_length=0, encoding="utf8")
     if "imdbID" not in frame.columns:
         raise ValueError("hetrec movies.dat is missing imdbID")
-    critics = frame["rtAllCriticsScore"].map_elements(parse_percent, return_dtype=pl.Float64)
-    audience = frame["rtAudienceScore"].map_elements(parse_percent, return_dtype=pl.Float64)
     payload = {
         "imdb_norm": frame["imdbID"].map_elements(normalize_imdb, return_dtype=pl.Utf8),
-        "rt_critics": critics,
-        "rt_audience": audience,
+        "rt_critics": frame["rtAllCriticsScore"].map_elements(parse_percent, return_dtype=pl.Float64),
+        "rt_audience": frame["rtAudienceScore"].map_elements(parse_percent, return_dtype=pl.Float64),
+        "n_critics": frame["rtAllCriticsNumReviews"].map_elements(parse_count, return_dtype=pl.Int64),
+        "n_audience": frame["rtAudienceNumRatings"].map_elements(parse_count, return_dtype=pl.Int64),
+        "fresh_critics": frame["rtAllCriticsNumFresh"].map_elements(
+            parse_optional_count, return_dtype=pl.Int64
+        ),
     }
     if "rtID" in frame.columns:
         payload["rt_id"] = frame["rtID"]
-    return pl.DataFrame(payload).filter(pl.col("imdb_norm") != "")
+    # hetrec writes an unrated film as score 0 with zero reviews rather than \N.
+    # Taken at face value that pins ~26% of the audience column to a false 0%.
+    rows = []
+    for rec in pl.DataFrame(payload).iter_rows(named=True):
+        n_c = int(rec["n_critics"] or 0)
+        n_a = int(rec["n_audience"] or 0)
+        critics = rec["rt_critics"] if n_c > 0 else None
+        audience = rec["rt_audience"] if n_a > 0 else None
+        row = {
+            "imdb_norm": rec["imdb_norm"],
+            "rt_critics": critics,
+            "rt_audience": audience,
+            "n_critics": n_c if n_c > 0 else None,
+            "n_audience": n_a if n_a > 0 else None,
+            "k_critics": _binomial_k(critics, n_c, rec.get("fresh_critics")),
+            "k_audience": _binomial_k(audience, n_a, None),
+        }
+        if "rt_id" in rec:
+            row["rt_id"] = rec["rt_id"]
+        rows.append(row)
+    return pl.DataFrame(rows).filter(pl.col("imdb_norm") != "")
 
 
 def download_hetrec_movies(dest_dir: Path | None = None) -> Path:
@@ -108,15 +160,21 @@ def ingest_rt_scores(*, catalog_root: str | Path | None = None) -> pl.DataFrame:
     joined = movies.with_columns(
         pl.col("imdbId").map_elements(normalize_imdb, return_dtype=pl.Utf8).alias("imdb_norm")
     ).join(scores, on="imdb_norm", how="left")
-    out = joined.select(
+    cols = [
         "movie_row",
         "movieId",
         "imdbId",
         "title",
         "rt_critics",
         "rt_audience",
-        "rt_id",
-    )
+        "n_critics",
+        "n_audience",
+        "k_critics",
+        "k_audience",
+    ]
+    if "rt_id" in joined.columns:
+        cols.append("rt_id")
+    out = joined.select(cols)
     dest = scores_path()
     out.write_parquet(dest)
     n_c = int(out["rt_critics"].is_not_null().sum())
@@ -151,3 +209,37 @@ def rt_target_matrices(n_movies: int, table: pl.DataFrame | None = None) -> tupl
             y[idx, 1] = float(audience)
             mask[idx, 1] = True
     return y, mask
+
+
+def rt_count_matrices(
+    n_movies: int, table: pl.DataFrame | None = None
+) -> tuple[NDArray[np.int32], NDArray[np.int32], BoolArray]:
+    """Binomial counts (k, n) per title. k is fresh / liked, n is reviews.
+
+    A 100% Tomatometer with one review is (k=1, n=1), not a delta at 1.0.
+    """
+    frame = table if table is not None else load_rt_scores()
+    needed = {"k_critics", "n_critics", "k_audience", "n_audience"}
+    if not needed.issubset(set(frame.columns)):
+        frame = ingest_rt_scores()
+    k = np.zeros((n_movies, 2), dtype=np.int32)
+    n = np.zeros((n_movies, 2), dtype=np.int32)
+    mask = np.zeros((n_movies, 2), dtype=bool)
+    rows = frame.filter(pl.col("movie_row").is_not_null())
+    for row in rows.iter_rows(named=True):
+        idx = int(row["movie_row"])
+        if idx < 0 or idx >= n_movies:
+            continue
+        for col, kk, nn in (
+            (0, row.get("k_critics"), row.get("n_critics")),
+            (1, row.get("k_audience"), row.get("n_audience")),
+        ):
+            if kk is None or nn is None:
+                continue
+            reviews = int(nn)
+            if reviews <= 0:
+                continue
+            k[idx, col] = int(min(max(int(kk), 0), reviews))
+            n[idx, col] = reviews
+            mask[idx, col] = True
+    return k, n, mask

@@ -18,6 +18,7 @@ from audience_predictor.viz.style import (
     PAPER,
     RED,
     TEAL,
+    VIOLET,
     apply_style,
     savefig,
 )
@@ -221,6 +222,65 @@ def plot_two_step(oracle: float, isab: float, mean_tags: float, narrative: float
         ax.text(val + 0.008, yi, f"{val:.3f}", va="center", fontsize=9)
     ax.invert_yaxis()
     return savefig(fig, path)
+
+
+def plot_rt_reception(
+    pred: np.ndarray,
+    true: np.ndarray,
+    mask: np.ndarray,
+    path: Path,
+    *,
+    spearman: tuple[float, float, float] = (0.0, 0.0, 0.0),
+) -> Path:
+    """Holdout predicted vs observed RT critics, audience, and the gap."""
+    import matplotlib.pyplot as plt
+
+    apply_style()
+    pred = np.asarray(pred, dtype=float)
+    true = np.asarray(true, dtype=float)
+    mask = np.asarray(mask, dtype=bool)
+    fig, axes = plt.subplots(1, 3, figsize=(12.4, 4.2))
+    panels = (
+        (axes[0], 0, "Critics  ·  Tomatometer", GOLD, spearman[0]),
+        (axes[1], 1, "Audience  ·  Popcornmeter", TEAL, spearman[1]),
+    )
+    for ax, col, title, color, rho in panels:
+        keep = mask[:, col]
+        ax.scatter(
+            100 * true[keep, col],
+            100 * pred[keep, col],
+            s=12,
+            c=color,
+            alpha=0.45,
+            linewidths=0,
+            zorder=3,
+        )
+        ax.plot([0, 100], [0, 100], color=INK, lw=0.8, alpha=0.4, zorder=2)
+        ax.set_xlim(0, 100)
+        ax.set_ylim(0, 100)
+        ax.set_xlabel("observed")
+        ax.set_ylabel("posterior mean from text")
+        ax.set_title(title, fontsize=11)
+        ax.text(6, 92, f"ρ = {rho:.2f}", fontsize=9, color=INK)
+    both = mask[:, 0] & mask[:, 1]
+    gap_true = 100 * (true[both, 1] - true[both, 0])
+    gap_pred = 100 * (pred[both, 1] - pred[both, 0])
+    axes[2].scatter(gap_true, gap_pred, s=12, c=VIOLET, alpha=0.45, linewidths=0, zorder=3)
+    axes[2].axhline(0, color=GRID, lw=0.8)
+    axes[2].axvline(0, color=GRID, lw=0.8)
+    axes[2].plot([-80, 80], [-80, 80], color=INK, lw=0.8, alpha=0.4)
+    axes[2].set_xlim(-80, 80)
+    axes[2].set_ylim(-80, 80)
+    axes[2].set_xlabel("observed audience − critics")
+    axes[2].set_ylabel("predicted gap")
+    axes[2].set_title("Crowd-pleaser vs critics' movie", fontsize=11)
+    axes[2].text(-72, 68, f"ρ = {spearman[2]:.2f}", fontsize=9, color=INK)
+    fig.suptitle("Rotten Tomatoes estimates from story text  ·  holdout", fontsize=13, y=1.02)
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=220, bbox_inches="tight")
+    plt.close(fig)
+    return path
 
 
 def plot_product_recall(

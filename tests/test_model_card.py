@@ -1,7 +1,10 @@
+import numpy as np
+
 from audience_predictor.viz.model_card import (
     plot_architecture_dag,
     plot_honesty_ladder,
     plot_product_recall,
+    plot_rt_reception,
     plot_two_step,
 )
 
@@ -23,4 +26,9 @@ def test_honesty_and_two_step_write(tmp_path):
         0.005,
         tmp_path / "product.png",
     )
-    assert a.exists() and b.exists() and c.exists()
+    rng = np.random.default_rng(0)
+    pred = rng.uniform(0.2, 0.8, size=(40, 2))
+    true = pred + rng.normal(0, 0.05, size=pred.shape)
+    mask = np.ones_like(pred, dtype=bool)
+    d = plot_rt_reception(pred, true, mask, tmp_path / "rt.png", spearman=(0.5, 0.3, 0.2))
+    assert a.exists() and b.exists() and c.exists() and d.exists()

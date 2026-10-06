@@ -14,9 +14,9 @@ from numpy.typing import NDArray
 from tqdm import tqdm
 
 from audience_predictor.models.hierarchical import NarrativeSetEncoder
-from audience_predictor.models.losses import bce_soft, gaussian_nll, masked_mse, mse
+from audience_predictor.models.losses import bce_soft, beta_binomial_nll, gaussian_nll, mse
 from audience_predictor.models.mlp import AudienceMLP
-from audience_predictor.models.scores import ScoreMLP
+from audience_predictor.models.scores import ScoreBeta
 from audience_predictor.models.tag_encoder import ScriptTagEncoder, TagMeanEncoder
 
 
@@ -95,9 +95,10 @@ def predict_mlp(model: AudienceMLP, x: NDArray[np.floating]) -> dict[str, np.nda
     }
 
 
-def train_score_mlp(
+def train_score_beta(
     x: NDArray[np.floating],
-    y: NDArray[np.floating],
+    k: NDArray[np.integer],
+    n: NDArray[np.integer],
     mask: NDArray[np.bool_],
     train_idx: NDArray[np.integer],
     *,
@@ -106,38 +107,66 @@ def train_score_mlp(
     lr: float,
     weight_decay: float,
     seed: int,
-) -> tuple[ScoreMLP, list[float]]:
+    val_frac: float = 0.15,
+) -> tuple[ScoreBeta, list[float]]:
+    """Full-batch AdamW on beta-binomial NLL, restoring the best val epoch."""
     key = jax.random.key(seed)
-    model = ScoreMLP(in_dim=x.shape[1], hidden=hidden, key=key)
+    model = ScoreBeta(in_dim=x.shape[1], hidden=hidden, key=key)
+    rng = np.random.default_rng(seed)
+    perm = rng.permutation(np.asarray(train_idx))
+    n_val = max(1, int(perm.size * val_frac))
+    val_idx, inner_idx = perm[:n_val], perm[n_val:]
+    if inner_idx.size < 20:
+        inner_idx, val_idx = perm, perm[: max(1, perm.size // 8)]
+    xt = jnp.asarray(x[inner_idx])
+    kt = jnp.asarray(k[inner_idx])
+    nt = jnp.asarray(n[inner_idx])
+    mt = jnp.asarray(mask[inner_idx]).astype(jnp.float32)
+    xv = jnp.asarray(x[val_idx])
+    kv = jnp.asarray(k[val_idx])
+    nv = jnp.asarray(n[val_idx])
+    mv = jnp.asarray(mask[val_idx]).astype(jnp.float32)
     optim = _adamw(lr, weight_decay)
     opt_state = optim.init(eqx.filter(model, eqx.is_inexact_array))
-    xt = jnp.asarray(x[train_idx])
-    yt = jnp.asarray(y[train_idx])
-    mt = jnp.asarray(mask[train_idx]).astype(jnp.float32)
 
     @eqx.filter_jit
     def step(model, opt_state):
         def loss_fn(model):
-            pred = jax.vmap(model)(xt)
-            return masked_mse(pred, yt, mt)
+            alpha, beta = jax.vmap(model)(xt)
+            return beta_binomial_nll(alpha, beta, kt, nt, mt)
 
         loss, grads = eqx.filter_value_and_grad(loss_fn)(model)
         updates, opt_state = optim.update(grads, opt_state, eqx.filter(model, eqx.is_inexact_array))
         model = eqx.apply_updates(model, updates)
         return model, opt_state, loss
 
+    @eqx.filter_jit
+    def val_nll(model):
+        alpha, beta = jax.vmap(model)(xv)
+        return beta_binomial_nll(alpha, beta, kv, nv, mv)
+
     history: list[float] = []
-    for epoch in tqdm(range(epochs), desc="rt score mlp"):
+    best_val, best_model, best_epoch = float("inf"), model, 0
+    max_epochs = int(epochs)
+    for epoch in tqdm(range(max_epochs), desc="rt score beta"):
         model, opt_state, loss = step(model, opt_state)
         history.append(float(loss))
-        if epoch == 0 or (epoch + 1) % 10 == 0:
-            print(f"  epoch {epoch + 1}/{epochs}  loss={float(loss):.4f}")
-    return model, history
+        if epoch % 10 == 0 or epoch == max_epochs - 1:
+            current = float(val_nll(model))
+            if current < best_val - 1e-5:
+                best_val, best_model, best_epoch = current, model, epoch
+        if epoch == 0 or (epoch + 1) % 50 == 0:
+            print(f"  epoch {epoch + 1}/{max_epochs}  train={float(loss):.4f}  val={float(val_nll(model)):.4f}")
+    print(f"  restored epoch {best_epoch + 1}  val NLL={best_val:.4f}")
+    return best_model, history
 
 
-def predict_scores(model: ScoreMLP, x: NDArray[np.floating]) -> np.ndarray:
-    pred = jax.vmap(model)(jnp.asarray(x))
-    return np.asarray(pred, dtype=np.float64)
+def predict_score_beta(model: ScoreBeta, x: NDArray[np.floating]) -> dict[str, np.ndarray]:
+    alpha, beta = jax.vmap(model)(jnp.asarray(x))
+    return {
+        "alpha": np.asarray(alpha, dtype=np.float64),
+        "beta": np.asarray(beta, dtype=np.float64),
+    }
 
 
 def train_set_encoder(

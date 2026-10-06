@@ -6,6 +6,7 @@ import numpy as np
 import polars as pl
 
 COMP_MIN_RATINGS = 1500
+COMP_FAMOUS_RATINGS = 15_000
 COMP_K = 10
 _CHUNK = 512
 

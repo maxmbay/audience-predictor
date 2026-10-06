@@ -266,18 +266,45 @@ PYTHONPATH=src uv run python -m audience_predictor ingest-rt
 PYTHONPATH=src uv run python -m audience_predictor train --modality rt_scores
 ```
 
-Holdout on SubLens titles that have a hetrec score (n=1,100):
+![RT estimates](../reports/figures/model/rt_scores.png)
 
-| Head | Spearman | MAE (0–1) |
-|---|---:|---:|
-| Critics (Tomatometer) | **0.48** | 0.22 |
-| Audience (Popcornmeter) | **0.33** | 0.22 |
-| Gap (audience − critics) | **0.32** | — |
+Holdout on SubLens titles that have a hetrec score:
+
+| Head | Spearman of E[π] | MAE | mean 90% width | n |
+|---|---:|---:|---:|---:|
+| Critics (Tomatometer) | **0.57** | 0.20 | 0.70 | 1,067 |
+| Audience (Popcornmeter) | **0.54** | 0.12 | 0.47 | 927 |
+| Gap (audience − critics) | **0.41** | — | — | 927 |
+
+The head predicts a **Beta posterior** \(p(\pi \mid \text{text}) = \mathrm{Beta}(\alpha(x), \beta(x))\),
+not a point score. Training uses the beta-binomial likelihood of the observed
+counts \((k, n)\) — fresh of all-critics, liked of audience. A 100% Tomatometer
+with one review is \((k=1, n=1)\), which barely moves the posterior; 73/73 does.
+The guess card prints the posterior mean and a 90% equal-tailed interval.
+
+On this holdout the posterior mean never reaches 0.95 (max 0.91). The 81
+observed 100%s — many of them thin-count — map to a median mean of 0.79.
+Typical concentration κ is about 3 for critics and 9 for audience, so the
+intervals are wide: text ranks films but does not pin a Tomatometer. That is
+the honest answer; a point 100 was an artifact of clipping an unbounded SVR.
+
+The mapping is a small MLP (same 384-d pooled BGE) to \((\mathrm{logit}\,\mu, \log\kappa)\)
+per column, with \(\alpha = \mu\kappa\), \(\beta = (1-\mu)\kappa\), \(\kappa \ge 2\).
+AdamW, early stopping on held-out NLL (best epoch 131 of 1,500). An RBF SVR
+still wins on Spearman of a *point* score (0.59 / 0.56); a point score is the
+wrong object for this target.
+
+Two label notes, both load-bearing. hetrec records an unrated film as score
+`0` with zero reviews rather than `\N`; those stay missing. Counts still differ
+per column because a title can carry a critic score and no audience score.
+An RBF SVR beat this MLP on Spearman of *point* scores, but a point score is
+the wrong object for this target.
 
 The guess card then adds critics / audience / the gap (crowd-pleaser vs
-critics' movie). Comps stay the product. Do not optimize this head at the
-expense of neighborhood recall. These scores are a **reception estimate**,
-same clock as awards tags — useful language, not a greenlight.
+critics' movie), each with a 90% interval. Comps stay the product. Do not
+optimize this head at the expense of neighborhood recall. These scores are a
+**reception estimate**, same clock as awards tags — useful language, not a
+greenlight.
 
 Lab log: [issue #1](https://github.com/maxmbay/audience-predictor/issues/1).
 

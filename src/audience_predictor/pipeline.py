@@ -42,7 +42,11 @@ from audience_predictor.data.narrative import (
     pooled_block_features,
     tag_blocks_for_movies,
 )
-from audience_predictor.data.rt_scores import ingest_rt_scores, rt_target_matrices
+from audience_predictor.data.rt_scores import (
+    ingest_rt_scores,
+    rt_count_matrices,
+    rt_target_matrices,
+)
 from audience_predictor.data.splits import movie_split
 from audience_predictor.data.subtitles import (
     ingest_sublens,
@@ -52,6 +56,7 @@ from audience_predictor.data.subtitles import (
 from audience_predictor.data.tags import load_tags, movie_tag_text
 from audience_predictor.data.targets import polarization_matrix, polarization_table
 from audience_predictor.eval.comps import (
+    COMP_FAMOUS_RATINGS,
     COMP_K,
     COMP_MIN_RATINGS,
     neighbor_table,
@@ -62,18 +67,18 @@ from audience_predictor.eval.comps import (
 from audience_predictor.eval.heads import format_predict_card, predict_head_for_document
 from audience_predictor.eval.metrics import cosine, recovery_metrics, score_metrics
 from audience_predictor.models.mlp import AudienceMLP
-from audience_predictor.models.scores import ScoreMLP
+from audience_predictor.models.scores import ScoreBeta, beta_interval, beta_mean
 from audience_predictor.paths import output_dir, reports_dir
 from audience_predictor.train.loop import (
     load_checkpoint,
     predict_mlp,
-    predict_scores,
+    predict_score_beta,
     predict_set_encoder,
     predict_tag_encoder,
     predict_tag_mean_encoder,
     save_checkpoint,
     train_mlp,
-    train_score_mlp,
+    train_score_beta,
     train_set_encoder,
     train_tag_encoder,
     train_tag_mean_encoder,
@@ -95,6 +100,7 @@ from audience_predictor.viz.model_card import (
     plot_baseline_atlas,
     plot_honesty_ladder,
     plot_product_recall,
+    plot_rt_reception,
     plot_tag_constellation,
     plot_two_step,
     plot_usefulness_plane,
@@ -208,6 +214,27 @@ def _holdout_mask(n: int, hold_idx: np.ndarray) -> np.ndarray:
     mask = np.zeros(n, dtype=bool)
     mask[hold_idx] = True
     return mask
+
+
+def _rt_posterior_stats(
+    mean: np.ndarray,
+    lo: np.ndarray,
+    hi: np.ndarray,
+    mask: np.ndarray,
+    idx: np.ndarray,
+) -> dict[str, float]:
+    """How often the posterior mean hugs 100, and how wide the 90% interval is."""
+    out: dict[str, float] = {}
+    for col, name in enumerate(("critics", "audience")):
+        keep = np.asarray(mask, dtype=bool)[idx, col]
+        if keep.sum() == 0:
+            continue
+        m = np.asarray(mean)[idx][keep, col]
+        width = (np.asarray(hi) - np.asarray(lo))[idx][keep, col]
+        out[f"rail_{name}"] = float((m >= 0.99).mean())
+        out[f"max_{name}"] = float(m.max())
+        out[f"width_{name}"] = float(width.mean())
+    return out
 
 
 def _slice_metrics(
@@ -474,27 +501,44 @@ def run_train(config: Config, modality: str) -> Path:
         if used_train.size < 20:
             raise ValueError(f"rt_scores train set too small: {used_train.size}")
         print(f"rt labels train={used_train.size:,}  holdout={used_hold.size:,}")
-        model, history = train_score_mlp(
-            x, y, score_mask, used_train,
-            hidden=rep.hidden, epochs=cfg.epochs, lr=cfg.lr,
+        counts, trials, count_mask = rt_count_matrices(z.shape[0])
+        model, history = train_score_beta(
+            x, counts, trials, count_mask, used_train,
+            hidden=rep.hidden, epochs=max(int(cfg.epochs), 1500), lr=cfg.lr,
             weight_decay=cfg.weight_decay, seed=config.seed,
         )
-        scores = predict_scores(model, x)
+        post = predict_score_beta(model, x)
+        scores = beta_mean(post["alpha"], post["beta"])
+        lo, hi = beta_interval(post["alpha"], post["beta"])
         save_checkpoint(out / "model.eqx", model)
-        (out / "meta.json").write_text(json.dumps({"in_dim": int(x.shape[1]), "hidden": int(rep.hidden)}))
+        (out / "meta.json").write_text(
+            json.dumps({"in_dim": int(x.shape[1]), "hidden": int(rep.hidden), "kind": "beta"})
+        )
         np.savez_compressed(
             out / "predictions.npz",
             scores=scores,
+            alpha=post["alpha"],
+            beta=post["beta"],
+            lo=lo,
+            hi=hi,
             target=y,
             mask=score_mask,
+            k=counts,
+            n=trials,
             train_idx=used_train,
             holdout_idx=used_hold,
             holdout_mask=_holdout_mask(z.shape[0], used_hold),
             history=np.asarray(history),
         )
         metrics = {
-            "train": score_metrics(scores[used_train], y[used_train], score_mask[used_train]),
-            "holdout": score_metrics(scores[used_hold], y[used_hold], score_mask[used_hold]),
+            "train": {
+                **score_metrics(scores[used_train], y[used_train], score_mask[used_train]),
+                **_rt_posterior_stats(scores, lo, hi, score_mask, used_train),
+            },
+            "holdout": {
+                **score_metrics(scores[used_hold], y[used_hold], score_mask[used_hold]),
+                **_rt_posterior_stats(scores, lo, hi, score_mask, used_hold),
+            },
         }
         (out / "metrics.json").write_text(json.dumps(metrics, indent=2))
         print(json.dumps({"modality": modality, **metrics["holdout"]}, indent=2))
@@ -572,7 +616,8 @@ def run_evaluate(config: Config) -> Path:
             print(
                 f"{name:<22} critics ρ={ho.get('spearman_critics', 0):.2f}  "
                 f"audience ρ={ho.get('spearman_audience', 0):.2f}  "
-                f"gap ρ={ho.get('spearman_gap', 0):.2f}  n={int(ho.get('n', 0))}"
+                f"gap ρ={ho.get('spearman_gap', 0):.2f}  "
+                f"max={ho.get('max_critics', 0):.2f}  n={int(ho.get('n', 0))}"
             )
             continue
         print(
@@ -847,6 +892,25 @@ def run_model_card(config: Config) -> Path:
             probes[:5],
             figs / "atlas_dual.png",
         )
+    rt_pred = output_dir() / "rt_scores" / "predictions.npz"
+    if rt_pred.exists():
+        rt = np.load(rt_pred)
+        hold = rt["holdout_idx"]
+        ho = _holdout_block(data, "rt_scores")
+        rt_metrics = output_dir() / "rt_scores" / "metrics.json"
+        if rt_metrics.exists() and not ho.get("spearman_critics"):
+            ho = json.loads(rt_metrics.read_text()).get("holdout") or ho
+        plot_rt_reception(
+            rt["scores"][hold],
+            rt["target"][hold],
+            rt["mask"][hold],
+            figs / "rt_scores.png",
+            spearman=(
+                float(ho.get("spearman_critics", 0.0)),
+                float(ho.get("spearman_audience", 0.0)),
+                float(ho.get("spearman_gap", 0.0)),
+            ),
+        )
     print(f"Wrote model-card figures under {figs}")
     return figs
 
@@ -867,7 +931,14 @@ def _pool_for_head(
     return pooled
 
 
-def run_predict(config: Config, text: str, *, k: int = 8, as_json: bool = False) -> dict:
+def run_predict(
+    config: Config,
+    text: str,
+    *,
+    k: int = 8,
+    as_json: bool = False,
+    emit: bool = True,
+) -> dict:
     """Drop in any narrative text; print comps and polarization.
 
     Screenplays use the gold dialogue_mean head when it exists. Everything
@@ -896,7 +967,7 @@ def run_predict(config: Config, text: str, *, k: int = 8, as_json: bool = False)
     aux = pred["aux"][0]
     sigma = float(np.exp(0.5 * pred["log_var"][0]))
     _root, movies, z, _bias, _n_ratings, _aux, _split, _years = _load_spine(config)
-    comps = neighbors_from_vector(movies, z, mu, k=k)
+    comps = neighbors_from_vector(movies, z, mu, k=k, min_ratings=COMP_FAMOUS_RATINGS)
     result = {
         "path": head,
         "document_type": kind,
@@ -916,19 +987,28 @@ def run_predict(config: Config, text: str, *, k: int = 8, as_json: bool = False)
     if rt_ckpt.exists() and rt_meta.exists():
         meta = json.loads(rt_meta.read_text())
         if int(meta.get("in_dim", -1)) == int(pooled.shape[-1]):
-            score_like = ScoreMLP(
+            score_like = ScoreBeta(
                 in_dim=int(pooled.shape[-1]),
                 hidden=int(meta.get("hidden", config.representation.hidden)),
                 key=jax.random.key(0),
             )
             score_model = load_checkpoint(rt_ckpt, score_like)
-            rt_hat = predict_scores(score_model, pooled)[0]
+            post = predict_score_beta(score_model, pooled)
+            mean = beta_mean(post["alpha"], post["beta"])[0]
+            lo, hi = beta_interval(post["alpha"][0], post["beta"][0])
             result["rt"] = {
-                "critics": float(rt_hat[0] * 100.0),
-                "audience": float(rt_hat[1] * 100.0),
-                "source": "hetrec-2011 snapshot, predicted from text",
+                "critics": float(mean[0] * 100.0),
+                "audience": float(mean[1] * 100.0),
+                "critics_lo": float(lo[0] * 100.0),
+                "critics_hi": float(hi[0] * 100.0),
+                "audience_lo": float(lo[1] * 100.0),
+                "audience_hi": float(hi[1] * 100.0),
+                "alpha": [float(post["alpha"][0, 0]), float(post["alpha"][0, 1])],
+                "beta": [float(post["beta"][0, 0]), float(post["beta"][0, 1])],
+                "source": "hetrec-2011 snapshot, Beta posterior from text",
             }
-    print(json.dumps(result, indent=2) if as_json else format_predict_card(result))
+    if emit:
+        print(json.dumps(result, indent=2) if as_json else format_predict_card(result))
     return result
 
 

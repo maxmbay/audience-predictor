@@ -231,10 +231,11 @@ def _findings() -> str:
     if rt and rt.get("spearman_critics") is not None:
         gold_note += f"""
 - **Rotten Tomatoes estimates (reception, not script-time).** hetrec 2011
-  snapshot. Text → critics Spearman {rt.get('spearman_critics', 0):.2f},
+  snapshot. Text → Beta posterior; Spearman of E[π] critics {rt.get('spearman_critics', 0):.2f},
   audience {rt.get('spearman_audience', 0):.2f}, gap {rt.get('spearman_gap', 0):.2f}
-  (n={int(rt.get('n', 0))}). These numbers describe a released film. Treat them
-  as a translation of the guess card, not a greenlight.
+  (n={int(rt.get('n', 0))}). The card prints a 90% interval, not a point 100.
+  These numbers describe a released film. Treat them as a translation of the
+  guess card, not a greenlight.
 """
     if not gold_note:
         gold_note = """

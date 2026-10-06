@@ -40,6 +40,12 @@ def predict_head_for_document(
     return DEFAULT_HEAD
 
 
+def _rt_score_line(name: str, mean: float, lo: object, hi: object) -> str:
+    if isinstance(lo, (int, float)) and isinstance(hi, (int, float)):
+        return f"  {name:<10} {mean:3.0f}   90% [{float(lo):3.0f}, {float(hi):3.0f}]"
+    return f"  {name:<10} {mean:3.0f}"
+
+
 def format_predict_card(result: dict) -> str:
     """Human readout for `predict`. JSON is the `--json` path."""
     pol = result["polarization"]
@@ -63,8 +69,8 @@ def format_predict_card(result: dict) -> str:
         lines += [
             "",
             "estimated Rotten Tomatoes  ·  if this were released",
-            f"  critics    {critics:3.0f}",
-            f"  audience   {audience:3.0f}",
+            _rt_score_line("critics", critics, rt.get("critics_lo"), rt.get("critics_hi")),
+            _rt_score_line("audience", audience, rt.get("audience_lo"), rt.get("audience_hi")),
             f"  gap        {gap:+.0f}   {lean}",
         ]
     lines += [

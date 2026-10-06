@@ -2,3 +2,5 @@ id	title	imdbID	spanishTitle	imdbPictureURL	year	rtID	rtAllCriticsRating	rtAllCr
 1	Toy story	0114709	Toy story	http://example.com	1995	toy_story	9	73	73	0	100	8.5	17	17	0	100	3.7	102338	81	http://example.com
 2	Jumanji	0113497	Jumanji	http://example.com	1995	jumanji	5	20	10	10	46	5	5	2	3	40	3.2	1000	61	http://example.com
 3	Missing	0000001	Missing	http://example.com	1990	missing	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	\N	http://example.com
+4	Unrated	0000002	Unrated	http://example.com	1992	unrated	0	0	0	0	0	0	0	0	0	0	0	0	0	http://example.com
+5	One review	0000003	One review	http://example.com	2001	one_review	9	1	1	0	100	9	1	1	0	100	0	0	0	http://example.com
