@@ -10,11 +10,31 @@ SCENE_RE = re.compile(
     re.IGNORECASE,
 )
 TRANSITION_RE = re.compile(
-    r"^(CUT TO:|FADE IN:|FADE OUT:|SMASH CUT:|DISSOLVE TO:|BACK TO:)\s*$",
-    re.IGNORECASE,
+    r"^(CUT TO:|FADE IN:|FADE OUT[:.]?|SMASH CUT:|DISSOLVE TO:|BACK TO:|"
+    r"(CUT|FADE|SMASH CUT) TO BLACK[:.]?|[A-Z ]+ TO:)\s*$",
 )
 CHARACTER_RE = re.compile(r"^[A-Z][A-Z0-9 #.'\-]{1,36}$")
+EXTENSION_RE = re.compile(r"\s*\([^)]*\)\s*$")
+ACT_RE = re.compile(r"^(END OF )?ACT [IVXLC0-9]+\.?$|^(PROLOGUE|EPILOGUE)\.?$")
 PARENTHETICAL_RE = re.compile(r"^\(.*\)$")
+TITLE_KEY_RE = re.compile(
+    r"^(title|credit|author|authors|source|draft date|date|contact|copyright|notes|revision)\s*:",
+    re.IGNORECASE,
+)
+
+
+def strip_title_page(text: str) -> str:
+    """Drop a leading Fountain title page (Key: value lines up to the first blank line)."""
+    lines = text.splitlines()
+    start = 0
+    while start < len(lines) and not lines[start].strip():
+        start += 1
+    if start >= len(lines) or not TITLE_KEY_RE.match(lines[start].strip()):
+        return text
+    end = start
+    while end < len(lines) and lines[end].strip():
+        end += 1
+    return "\n".join(lines[end:])
 
 
 @dataclass
@@ -77,13 +97,20 @@ def _split_heading(heading: str) -> tuple[bool | None, str, str]:
     return interior, location.strip(" ."), time_of_day.strip(" .")
 
 
-def _is_character(line: str) -> bool:
+def _cue_name(line: str) -> str:
+    return EXTENSION_RE.sub("", line.strip()).strip().rstrip(".").strip()
+
+
+def _is_character(line: str, next_line: str) -> bool:
+    """A cue is an all-caps name with dialogue directly under it (no blank line)."""
     stripped = line.strip()
     if not stripped or len(stripped) > 40:
         return False
     if stripped.endswith("TO:"):
         return False
-    return bool(CHARACTER_RE.match(stripped.replace("(V.O.)", "").replace("(O.S.)", "").strip()))
+    if not next_line.strip():
+        return False
+    return bool(CHARACTER_RE.match(_cue_name(stripped)))
 
 
 def parse_screenplay(text: str) -> ParsedScreenplay:
@@ -104,10 +131,14 @@ def parse_screenplay(text: str) -> ParsedScreenplay:
             scenes.append(current)
         return current
 
-    for raw in text.splitlines():
+    lines = strip_title_page(text).splitlines()
+    for i, raw in enumerate(lines):
         line = raw.rstrip()
         stripped = line.strip()
         if not stripped:
+            speaker = None
+            continue
+        if ACT_RE.match(stripped):
             speaker = None
             continue
         if TRANSITION_RE.match(stripped):
@@ -125,8 +156,8 @@ def parse_screenplay(text: str) -> ParsedScreenplay:
             scenes.append(current)
             speaker = None
             continue
-        if _is_character(stripped):
-            speaker = re.sub(r"\s*\((V\.O\.|O\.S\.)\)\s*$", "", stripped).strip()
+        if _is_character(stripped, lines[i + 1] if i + 1 < len(lines) else ""):
+            speaker = _cue_name(stripped)
             scene = ensure_scene()
             if speaker not in scene.characters:
                 scene.characters.append(speaker)
