@@ -105,6 +105,12 @@ from audience_predictor.viz.model_card import (
     plot_two_step,
     plot_usefulness_plane,
 )
+from audience_predictor.viz.readme import (
+    pick_posterior_examples,
+    plot_posterior_story,
+    plot_scene_timeline,
+    plot_system,
+)
 from audience_predictor.viz.style import figures_dir
 
 
@@ -912,6 +918,37 @@ def run_model_card(config: Config) -> Path:
             ),
         )
     print(f"Wrote model-card figures under {figs}")
+    return figs
+
+
+def run_readme_figures(config: Config) -> Path:
+    """Front-page figures: system schematic, scene timeline, posterior story."""
+    from audience_predictor.coverage import cover_pages
+    from audience_predictor.web.demos import load_demo
+
+    figs = figures_dir() / "readme"
+    figs.mkdir(parents=True, exist_ok=True)
+    plot_system(figs / "system.png")
+    cards = [
+        (load_demo(demo_id)[0]["title"], cover_pages(load_demo(demo_id)[1]))
+        for demo_id in ("the_well", "two_tickets")
+    ]
+    plot_scene_timeline(cards, figs / "scene_timeline.png")
+    rt_pred = output_dir() / "rt_scores" / "predictions.npz"
+    if rt_pred.exists():
+        _root, movies, *_rest = _load_spine(config)
+        rt = np.load(rt_pred)
+        examples = pick_posterior_examples(
+            movies.sort("movie_row")["title"].to_list(),
+            rt["alpha"],
+            rt["beta"],
+            rt["target"],
+            rt["k"],
+            rt["n"],
+            rt["holdout_idx"],
+        )
+        plot_posterior_story(examples, figs / "posterior.png")
+    print(f"Wrote README figures under {figs}")
     return figs
 
 

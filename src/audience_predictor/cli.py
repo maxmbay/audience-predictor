@@ -15,6 +15,7 @@ from audience_predictor.pipeline import (
     run_model_card,
     run_predict,
     run_probes,
+    run_readme_figures,
     run_scaling,
     run_train,
 )
@@ -79,6 +80,7 @@ def main(argv: list[str] | None = None) -> None:
     sub.add_parser("probes", help="Write holdout comps cards for a qualitative useful/not pass")
     sub.add_parser("figures", help="Write report figures from trained checkpoints")
     sub.add_parser("model-card", help="Write baseline DAG and model-card figures")
+    sub.add_parser("readme-figures", help="Write the front-page schematic, timeline, and posterior figures")
     sub.add_parser("scaling", help="Holdout cosine vs number of training titles (genome)")
     sub.add_parser("report", help="Write the three-register technical report")
     serve = sub.add_parser("serve", help="Open the coverage desk in a browser")
@@ -113,6 +115,8 @@ def main(argv: list[str] | None = None) -> None:
         run_figures(config)
     elif args.command == "model-card":
         print(run_model_card(config))
+    elif args.command == "readme-figures":
+        print(run_readme_figures(config))
     elif args.command == "scaling":
         run_scaling(config)
     elif args.command == "report":
