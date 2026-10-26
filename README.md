@@ -1,20 +1,25 @@
 # Audience Predictor
 
-**Cold-start audience and coverage reads for a screenplay — before anyone has seen the film.**
+**Question.** From screenplay or subtitle text alone (nothing that exists only
+after release), can a small model place a title in collaborative taste space
+and return a Rotten Tomatoes posterior?
 
-Hand it pages. It answers the two questions a development exec actually asks,
-and keeps them separate:
+**Findings** (movie-level holdout; 20% of well-rated titles never supervise
+the text model):
+1. Main holdout number: shipped map, BGE subtitle mean-pool (**n = 1,446**),
+   cosine to the collaborative fingerprint **0.123**. Also Spearman with mean
+   rating **0.38**; Spearman with P(love) **0.43**; comps recall@10 **0.009**
+   (chance is **0.003**, about 3× chance). Same recall on obscure vs famous
+   titles.
+2. Reception head from story text alone (**n = 1,067**): Tomatometer Spearman
+   **0.57** (MAE 20 points; mean 90% interval width 70); audience score
+   Spearman **0.54** (MAE 12; width 47).
+3. Script-time ceiling is far below post-release tags: full genome + genre +
+   year reaches cosine **0.379**; genre + year alone **0.185**.
 
-- **Who is it for?** Lands the script in a 64-dimensional taste space learned
-  from 24.6M MovieLens ratings, then returns comps, love/hate polarization, and
-  a Rotten Tomatoes *posterior*, not a point guess.
-- **Is it any good?** Reads scene by scene with an open-weights NLI judge and
-  returns a craft timeline and a pass / consider / recommend stamp.
+![Coverage desk / product readout](reports/figures/readme/desk.png)
 
-<p align="center">
-  <img src="reports/figures/readme/desk.png" width="760" alt="Coverage desk: stamp, scene-by-scene judge timeline, what-is-it and is-it-good cards for the original spec THE WELL">
-</p>
-<p align="center"><sub>The coverage desk on <i>The Well</i>, an original spec in this repo. Scene-time chart: the judge's five craft probabilities, page by page.</sub></p>
+*Coverage desk on a bundled spec. Holdout tables and failure list follow below.*
 
 ---
 
